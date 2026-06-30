@@ -10,7 +10,7 @@ export default function AdminMenus() {
   const [editing, setEditing] = useState(null)
 
   const load = async () => {
-    try { const { data } = await getMenus(); setMenus(data.menus) }
+    try { const { data } = await getMenus(); setMenus(data) }
     catch { /* TODO: 에러 토스트 */ }
   }
 

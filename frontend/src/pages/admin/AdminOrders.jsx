@@ -5,7 +5,7 @@ export default function AdminOrders() {
   const [orders, setOrders] = useState([])
 
   useEffect(() => {
-    getOrders().then(({ data }) => setOrders(data.orders)).catch(() => {})
+    getOrders().then(({ data }) => setOrders(data)).catch(() => {})
   }, [])
 
   return (
