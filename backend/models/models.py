@@ -57,16 +57,3 @@ class Order(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
-class UnansweredQuestion(Base):
-    """
-    FAQ/메뉴/매장정보 컨텍스트에 없어서 AI가 답을 못 하고 넘긴 질문을 쌓아두는 테이블.
-    "모든 경우의 수"를 미리 다 채워넣는 대신, 실제로 빠진 부분을 모아서
-    관리자가 나중에 FAQ로 채워 넣을 수 있게 하기 위한 용도.
-    """
-    __tablename__ = "unanswered_questions"
-
-    id          = Column(Integer, primary_key=True)
-    text        = Column(Text, nullable=False)          # 손님이 실제로 한 질문(원문)
-    intent      = Column(String(20))                    # 그 시점에 모델이 분류한 intent
-    is_resolved = Column(Boolean, default=False)         # 관리자가 FAQ로 등록 등 처리했는지
-    created_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc))

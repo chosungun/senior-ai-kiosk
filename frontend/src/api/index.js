@@ -9,12 +9,10 @@ export const updateMenu    = (id, data) => api.patch(`/menus/${id}`, data)
 export const deleteMenu    = (id)       => api.delete(`/menus/${id}`)
 
 // ── FAQ ──────────────────────────────────────────────────────────
-export const getFaqs           = ()         => api.get('/faqs/')
-export const createFaq         = (data)     => api.post('/faqs/', data)
-export const updateFaq         = (id, data) => api.patch(`/faqs/${id}`, data)
-export const deleteFaq         = (id)       => api.delete(`/faqs/${id}`)
-export const getUnanswered     = (all)      => api.get('/faqs/unanswered', { params: { include_resolved: all } })
-export const resolveUnanswered = (id)       => api.patch(`/faqs/unanswered/${id}/resolve`)
+export const getFaqs       = ()         => api.get('/faqs/')
+export const createFaq     = (data)     => api.post('/faqs/', data)
+export const updateFaq     = (id, data) => api.patch(`/faqs/${id}`, data)
+export const deleteFaq     = (id)       => api.delete(`/faqs/${id}`)
 
 // ── 매장정보 ─────────────────────────────────────────────────────
 export const getStore      = ()         => api.get('/store/')
