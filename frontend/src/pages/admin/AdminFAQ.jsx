@@ -1,15 +1,21 @@
 // AdminFAQ.jsx
 import { useState, useEffect } from 'react'
-import { getFaqs, createFaq, updateFaq, deleteFaq } from '../../api'
+import { getFaqs, createFaq, updateFaq, deleteFaq, getUnanswered, resolveUnanswered } from '../../api'
 
-export function AdminFAQ() {
+export default function AdminFAQ() {
   const [faqs, setFaqs] = useState([])
+  const [unanswered, setUnanswered] = useState([])
+  const [showResolved, setShowResolved] = useState(false)
   const [form, setForm] = useState({ question: '', answer: '', keywords: '' })
 
   const load = async () => {
-    try { const { data } = await getFaqs(); setFaqs(data.faqs) } catch {}
+    try { const { data } = await getFaqs(); setFaqs(data) } catch {}
+  }
+  const loadUnanswered = async (all = showResolved) => {
+    try { const { data } = await getUnanswered(all); setUnanswered(data) } catch {}
   }
   useEffect(() => { load() }, [])
+  useEffect(() => { loadUnanswered(showResolved) }, [showResolved])
 
   const save = async () => {
     await createFaq({
@@ -18,6 +24,16 @@ export function AdminFAQ() {
     })
     setForm({ question: '', answer: '', keywords: '' })
     load()
+  }
+
+  const promoteToFaq = (item) => {
+    setForm({ question: item.text, answer: '', keywords: '' })
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const resolve = async (id) => {
+    await resolveUnanswered(id)
+    loadUnanswered()
   }
 
   return (
@@ -67,11 +83,59 @@ export function AdminFAQ() {
           </div>
         ))}
       </div>
+
+      {/* ── 미답변 질문 ── */}
+      <div style={{ marginTop: 48 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <div>
+            <h2 style={{ marginBottom: 4 }}>AI가 못 답한 질문</h2>
+            <p style={{ color: '#64748b', fontSize: 14 }}>
+              고객이 물었지만 AI가 컨텍스트에서 답을 못 찾은 질문들이에요.
+              자주 나오는 건 위에서 FAQ로 등록하세요.
+            </p>
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#64748b', cursor: 'pointer' }}>
+            <input type="checkbox" checked={showResolved}
+              onChange={e => setShowResolved(e.target.checked)} />
+            처리완료 포함
+          </label>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {unanswered.length === 0 && <p style={{ color: '#94a3b8' }}>미처리 질문이 없어요.</p>}
+          {unanswered.map(item => (
+            <div key={item.id} style={{
+              background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10,
+              padding: '14px 20px', opacity: item.is_resolved ? 0.5 : 1,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+                <div>
+                  <div style={{ fontWeight: 500, marginBottom: 4 }}>{item.text}</div>
+                  <div style={{ fontSize: 12, color: '#94a3b8' }}>
+                    intent: {item.intent ?? '-'}
+                    {item.is_resolved && <span style={{ marginLeft: 8, color: '#22c55e' }}>처리완료</span>}
+                  </div>
+                </div>
+                {!item.is_resolved && (
+                  <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                    <button onClick={() => promoteToFaq(item)}
+                      style={{ ...btnSecondary, fontSize: 12, padding: '4px 10px', color: '#1a56a0' }}>
+                      FAQ로 등록
+                    </button>
+                    <button onClick={() => resolve(item.id)}
+                      style={{ ...btnSecondary, fontSize: 12, padding: '4px 10px' }}>
+                      처리완료
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }
-
-export default AdminFAQ
 
 const lbl = { display: 'block', fontSize: 13, color: '#64748b', marginBottom: 4 }
 const inp = { width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 14, boxSizing: 'border-box' }
