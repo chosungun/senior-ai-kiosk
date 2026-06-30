@@ -1,5 +1,6 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
+import './styles/theme.css'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 
 // 키오스크 화면
