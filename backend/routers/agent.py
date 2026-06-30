@@ -46,7 +46,7 @@ SYSTEM_PROMPT = """
 # llama-3.3-70b-versatile 2026-08-16 폐기 → meta-llama/llama-4-scout-17b-16e-instruct 로 교체
 # json_schema 미지원 모델이라 json_object 사용 — 스키마 준수는 시스템 프롬프트로 유도
 # (gpt-oss-120b는 json_schema strict 지원하나 무료 티어 TPM=8000으로 rate limit 즉시 도달)
-GROQ_MODEL = os.getenv("GROQ_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
 RESPONSE_FORMAT = {"type": "json_object"}
 
