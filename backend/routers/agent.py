@@ -46,6 +46,7 @@ def build_context(db: Session) -> str:
 
     menu_list = "\n".join([
         f"- {m.name} ({m.price}원){' [품절]' if m.is_sold_out else ''}"
+        + (f": {m.description}" if m.description else "")
         for m in menus
     ])
     faq_list  = "\n".join([f"Q: {f.question}\nA: {f.answer}" for f in faqs])
