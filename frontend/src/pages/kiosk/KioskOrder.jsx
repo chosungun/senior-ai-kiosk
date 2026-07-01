@@ -1,198 +1,418 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
-import { agentChat, sttAudio, ttsText } from '../../api'
+import { useState, useEffect, useRef } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
+import {
+  Home, X, ShoppingCart, Flame, Snowflake,
+  Plus, Minus, Trash2, Coffee, ChevronRight,
+  Contrast, Mic,
+} from 'lucide-react'
+import { getMenus } from '../../api'
+import { useA11y } from '../../context/AccessibilityContext'
+import { getC } from '../../styles/colors'
+import { FF, H, B, BM, L, NAV, sc } from '../../styles/typography'
+import { FALLBACK } from '../../constants/menus'
+import AIAssistantFAB from '../../components/AIAssistantFAB'
 
-const INITIAL_STATE = {
-  step:  'start',
-  items: [],
-  total: 0,
+const TABS = ['커피', '논커피', '티/에이드', '디저트']
+const fmt = n => n.toLocaleString() + '원'
+
+function mapPreItems(preItems, menus) {
+  const norm = s => (s || '').replace(/따뜻한\s*|아이스\s*/g, '').replace(/\s+/g, '').toLowerCase()
+  return preItems.map((pi, i) => {
+    const found = menus.find(m =>
+      m.name === pi.menu || m.name.includes(pi.menu || '') ||
+      (pi.menu || '').includes(m.name) || norm(m.name) === norm(pi.menu)
+    )
+    if (!found) return null
+    const tempOpt = pi.options?.find(o => o.name === '온도')
+    const hasTempOption = (found.options || []).some(o => o.name === '온도')
+    const tempLabel = tempOpt
+      ? (tempOpt.value === 'HOT' ? 'HOT' : 'ICE')
+      : (hasTempOption || found.hasTemp ? 'HOT' : null)
+    const temp = tempLabel === 'HOT' ? '따뜻하게' : tempLabel === 'ICE' ? '시원하게' : null
+    const selectedOptions = tempLabel ? { '온도': { label: tempLabel, price: 0 } } : {}
+    return {
+      id: `${found.id}-${Date.now()}-${i}`,
+      menuId: found.id, name: found.name, price: found.price,
+      qty: pi.qty || 1, temp, selectedOptions, img: found.img,
+    }
+  }).filter(Boolean)
 }
 
 export default function KioskOrder() {
-  const [state,      setState]      = useState(INITIAL_STATE)
-  const [messages,   setMessages]   = useState([
-    { role: 'bot', text: '안녕하세요! 주문하실 메뉴를 말씀하거나 입력해 주세요.' }
-  ])
-  const [input,      setInput]      = useState('')
-  const [loading,    setLoading]    = useState(false)
-  const [recording,  setRecording]  = useState(false)
-  const bottomRef    = useRef(null)
-  const recorderRef  = useRef(null)
-  const chunksRef    = useRef([])
+  const nav = useNavigate()
+  const location = useLocation()
+  const { highContrast, setHighContrast, largeFont } = useA11y()
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+  const [menus, setMenus]               = useState(FALLBACK)
+  const [tab, setTab]                   = useState('커피')
+  const [cart, setCart]                 = useState([])
+  const [detail, setDetail]             = useState(null)
+  const [detailOptions, setDetailOptions] = useState({})
+  const [detailQty, setDetailQty]       = useState(1)
+  const [showCart, setShowCart]         = useState(false)
+  const [agentBanner, setAgentBanner]   = useState(location.state?.agentReply || '')
 
-  const playTTS = useCallback(async (text) => {
-    try {
-      const { data } = await ttsText(text)
-      const url = URL.createObjectURL(data)
-      const audio = new Audio(url)
-      audio.onended = () => URL.revokeObjectURL(url)
-      audio.play()
-    } catch {
-      // TTS 실패해도 텍스트는 이미 표시돼 있으므로 무시
-    }
-  }, [])
+  const fabRef = useRef(null)
 
-  const sendMessage = useCallback(async (text) => {
-    if (!text.trim() || loading) return
-
-    setMessages(prev => [...prev, { role: 'user', text }])
-    setInput('')
-    setLoading(true)
-
-    try {
-      const { data } = await agentChat(text, state)
-      setState(data.state)
-      setMessages(prev => [...prev, { role: 'bot', text: data.reply }])
-      playTTS(data.reply)
-    } catch {
-      const errMsg = '죄송해요, 다시 한 번 입력해 주시겠어요?'
-      setMessages(prev => [...prev, { role: 'bot', text: errMsg }])
-      playTTS(errMsg)
-    } finally {
-      setLoading(false)
-    }
-  }, [state, loading, playTTS])
-
-  const startRecording = useCallback(async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      chunksRef.current = []
-      const recorder = new MediaRecorder(stream)
-      recorder.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data) }
-      recorder.onstop = async () => {
-        stream.getTracks().forEach(t => t.stop())
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
-        setLoading(true)
-        try {
-          const { data } = await sttAudio(blob)
-          if (data.text) sendMessage(data.text)
-        } catch {
-          setMessages(prev => [...prev, { role: 'bot', text: '음성 인식에 실패했어요. 다시 말씀해 주세요.' }])
-        } finally {
-          setLoading(false)
-        }
-      }
-      recorder.start()
-      recorderRef.current = recorder
-      setRecording(true)
-    } catch {
-      alert('마이크 권한을 허용해 주세요.')
-    }
-  }, [sendMessage])
-
-  const stopRecording = useCallback(() => {
-    recorderRef.current?.stop()
-    setRecording(false)
-  }, [])
-
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      sendMessage(input)
-    }
+  const hc = highContrast
+  const lf = largeFont ? 1.2 : 1
+  const C = getC(hc)
+  const T = {
+    bg: C.bg, card: C.card, cardAlt: C.cardAlt, border: C.border,
+    text: C.text, sub: C.textSub, muted: C.textMuted,
+    primary: C.primary, primaryText: C.primaryText,
+    tabActive: C.primary, tabInactive: C.textMuted,
+    badgeRed: C.negative,
   }
 
-  return (
-    <div style={{
-      maxWidth: 480, margin: '0 auto', height: '100vh',
-      display: 'flex', flexDirection: 'column', fontFamily: 'sans-serif',
-      background: '#f0f4ff'
-    }}>
-      {/* 헤더 */}
-      <div style={{
-        background: '#1a56a0', color: '#fff',
-        padding: '16px 20px', fontSize: 18, fontWeight: 600
-      }}>
-        카페 키오스크
+  useEffect(() => {
+    getMenus()
+      .then(({ data }) => {
+        if (!data?.length) return
+        const norm = s => s.replace(/따뜻한\s*|아이스\s*/g, '').replace(/\s+/g, '').toLowerCase()
+        setMenus(FALLBACK.map(fb => {
+          const api = data.find(m =>
+            m.name === fb.name || m.id === fb.id || norm(m.name) === norm(fb.name)
+          )
+          return api ? { ...fb, price: api.price ?? fb.price, options: api.options ?? [] } : fb
+        }))
+      })
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    // Items from voice order on KioskHome (already resolved)
+    const resolvedItems = location.state?.resolvedItems
+    if (resolvedItems?.length) { setCart(resolvedItems); return }
+
+    // Items from legacy preItems format
+    const preItems = location.state?.preItems || []
+    if (!preItems.length) return
+    const items = mapPreItems(preItems, menus)
+    if (items.length) setCart(items)
+  }, [menus])
+
+  const handleAddToCart = (items) => {
+    setCart(prev => {
+      let next = [...prev]
+      items.forEach(ni => {
+        const same = next.find(c => c.menuId === ni.menuId && c.temp === ni.temp)
+        if (same) next = next.map(c => c.id === same.id ? { ...c, qty: c.qty + ni.qty } : c)
+        else next.push(ni)
+      })
+      return next
+    })
+  }
+
+  const cartTotal = cart.reduce((s, i) => s + i.price * i.qty, 0)
+  const cartCount = cart.reduce((s, i) => s + i.qty, 0)
+  const tabMenus  = Object.fromEntries(TABS.map(t => [t, menus.filter(m => m.category === t)]))
+
+  const openDetail = (item) => {
+    const defaults = {}
+    ;(item.options || []).forEach(opt => {
+      if (opt.choices?.length > 0) defaults[opt.name] = opt.choices[0]
+    })
+    setDetail(item); setDetailOptions(defaults); setDetailQty(1)
+  }
+
+  const addToCart = () => {
+    const optionExtra = Object.values(detailOptions).reduce((s, o) => s + (o.price || 0), 0)
+    const tempChoice = detailOptions['온도']
+    const temp = tempChoice?.label === 'HOT' ? '따뜻하게' : tempChoice?.label === 'ICE' ? '시원하게' : null
+    const item = {
+      id: `${detail.id}-${Date.now()}`,
+      menuId: detail.id, name: detail.name,
+      price: detail.price + optionExtra,
+      qty: detailQty, temp,
+      selectedOptions: { ...detailOptions }, img: detail.img,
+    }
+    setCart(prev => {
+      const key = JSON.stringify(item.selectedOptions)
+      const same = prev.find(c => c.menuId === item.menuId && JSON.stringify(c.selectedOptions || {}) === key)
+      if (same) return prev.map(c => c.id === same.id ? { ...c, qty: c.qty + item.qty } : c)
+      return [...prev, item]
+    })
+    setDetail(null)
+  }
+
+  const changeQty = (id, delta) =>
+    setCart(prev => prev.map(c => c.id === id ? { ...c, qty: Math.max(1, c.qty + delta) } : c))
+  const removeItem = (id) => setCart(prev => prev.filter(c => c.id !== id))
+
+  // ── Cart screen ────────────────────────────────────────────────────
+  if (showCart) return (
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: T.bg, fontFamily: FF }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexShrink: 0, padding: '28px 36px', background: T.card, borderBottom: `2px solid ${T.border}` }}>
+        <button onClick={() => setShowCart(false)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>
+          <ChevronRight size={28} color={T.text} style={{ transform: 'rotate(180deg)' }} />
+        </button>
+        <span style={{ ...sc(B.XS, lf), color: T.text }}>장바구니 확인</span>
       </div>
 
-      {/* 메시지 목록 */}
-      <div style={{
-        flex: 1, overflowY: 'auto', padding: 16,
-        display: 'flex', flexDirection: 'column', gap: 12
-      }}>
-        {messages.map((msg, i) => (
-          <div key={i} style={{
-            display: 'flex',
-            justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start'
-          }}>
-            <div style={{
-              maxWidth: '75%', padding: '12px 16px', borderRadius: 18,
-              fontSize: 16, lineHeight: 1.5,
-              background: msg.role === 'user' ? '#1a56a0' : '#fff',
-              color: msg.role === 'user' ? '#fff' : '#1e293b',
-              boxShadow: '0 1px 4px rgba(0,0,0,0.1)',
-              borderBottomRightRadius: msg.role === 'user' ? 4 : 18,
-              borderBottomLeftRadius:  msg.role === 'bot'  ? 4 : 18,
-            }}>
-              {msg.text}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
+        {cart.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '120px 40px', color: T.sub, ...BM.XS }}>
+            장바구니가 비어있어요
+          </div>
+        ) : cart.map(item => (
+          <div key={item.id} style={{ background: T.card, borderRadius: 24, border: `2px solid ${T.border}`, padding: '28px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 24 }}>
+            <div style={{ width: 96, height: 96, borderRadius: 20, overflow: 'hidden', background: T.cardAlt, flexShrink: 0 }}>
+              {item.img
+                ? <img src={item.img} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                : <Coffee size={52} color={T.muted} />}
             </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ ...sc(B.XS, lf), color: T.text }}>{item.name}</div>
+              <div style={{ marginTop: 4 }}>
+                {item.selectedOptions
+                  ? Object.entries(item.selectedOptions).map(([optName, choice]) => (
+                      <div key={optName} style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                        {optName === '온도' && choice.label === 'HOT' && <Flame size={28} color="#dc2626" />}
+                        {optName === '온도' && choice.label === 'ICE' && <Snowflake size={28} color="#0ea5e9" />}
+                        <span style={{ ...BM.XS, color: T.sub }}>
+                          {choice.label === 'HOT' ? '따뜻하게' : choice.label === 'ICE' ? '시원하게' : choice.label}
+                          {choice.price > 0 && ` +${choice.price.toLocaleString()}원`}
+                        </span>
+                      </div>
+                    ))
+                  : item.temp && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {item.temp === '따뜻하게' ? <Flame size={28} color="#dc2626" /> : <Snowflake size={28} color="#0ea5e9" />}
+                        <span style={{ ...BM.XS, color: T.sub }}>{item.temp}</span>
+                      </div>
+                    )
+                }
+              </div>
+              <div style={{ ...sc(B.XS, lf), color: T.primary, marginTop: 8 }}>{fmt(item.price)}</div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <button onClick={() => changeQty(item.id, -1)} style={{ width: 64, height: 64, borderRadius: '50%', background: T.bg, border: `2px solid ${T.border}`, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Minus size={28} color={T.text} />
+              </button>
+              <span style={{ ...sc(B.XS, lf), color: T.text, minWidth: 40, textAlign: 'center' }}>{item.qty}</span>
+              <button onClick={() => changeQty(item.id, 1)} style={{ width: 64, height: 64, borderRadius: '50%', background: T.primary, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Plus size={28} color={T.primaryText} />
+              </button>
+            </div>
+            <button onClick={() => removeItem(item.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '8px' }}>
+              <Trash2 size={28} color={T.muted} />
+            </button>
           </div>
         ))}
-        {loading && (
-          <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
-            <div style={{
-              background: '#fff', padding: '12px 16px', borderRadius: 18,
-              borderBottomLeftRadius: 4, fontSize: 16, color: '#94a3b8',
-              boxShadow: '0 1px 4px rgba(0,0,0,0.1)'
-            }}>
-              입력 중...
-            </div>
-          </div>
-        )}
-        <div ref={bottomRef} />
       </div>
 
-      {/* 입력창 */}
-      <div style={{
-        display: 'flex', gap: 8, padding: 12,
-        background: '#fff', borderTop: '1px solid #e2e8f0', alignItems: 'center'
-      }}>
-        {/* 마이크 버튼 */}
-        <button
-          onMouseDown={startRecording}
-          onMouseUp={stopRecording}
-          onTouchStart={startRecording}
-          onTouchEnd={stopRecording}
-          disabled={loading}
-          style={{
-            width: 48, height: 48, borderRadius: '50%', border: 'none',
-            background: recording ? '#dc2626' : '#e2e8f0',
-            fontSize: 20, cursor: 'pointer', flexShrink: 0,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            transition: 'background 0.15s'
-          }}
-        >
-          {recording ? '⏹' : '🎤'}
-        </button>
+      <div style={{ flexShrink: 0, padding: '28px 36px', background: T.card, borderTop: `2px solid ${T.border}` }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+          <span style={{ ...sc(B.XS, lf), color: T.sub }}>총 주문 금액</span>
+          <span style={{ ...sc(L.SM, lf), color: T.primary }}>{fmt(cartTotal)}</span>
+        </div>
+        <div style={{ display: 'flex', gap: 16 }}>
+          <button onClick={() => setShowCart(false)} style={{ flex: 1, padding: '28px', borderRadius: 20, background: T.bg, color: T.text, border: `2px solid ${T.border}`, ...sc(L.XS, lf), cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+            <Plus size={28} /> 메뉴 추가
+          </button>
+          <button onClick={() => nav('/kiosk/payment', { state: { cart, total: cartTotal } })} disabled={!cart.length} style={{ flex: 2, padding: '28px', borderRadius: 20, background: cart.length ? T.primary : T.border, color: cart.length ? T.primaryText : T.muted, border: 'none', ...sc(L.XS, lf), cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+            주문 확인 <ChevronRight size={28} />
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 
-        <input
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="메시지를 입력하세요..."
-          disabled={loading || recording}
-          style={{
-            flex: 1, padding: '12px 16px', fontSize: 16,
-            border: '1.5px solid #cbd5e1', borderRadius: 24,
-            outline: 'none', background: '#f8fafc'
-          }}
-        />
-        <button
-          onClick={() => sendMessage(input)}
-          disabled={loading || !input.trim() || recording}
-          style={{
-            background: input.trim() && !loading && !recording ? '#1a56a0' : '#cbd5e1',
-            color: '#fff', border: 'none', borderRadius: 24,
-            padding: '12px 20px', fontSize: 16, cursor: 'pointer',
-            fontWeight: 600, whiteSpace: 'nowrap'
-          }}
-        >
-          전송
+  // ── Main menu screen ───────────────────────────────────────────────
+  return (
+    <div style={{
+      height: '100%', display: 'flex', flexDirection: 'column',
+      background: T.bg, fontFamily: FF, position: 'relative', overflow: 'hidden',
+    }}>
+      {/* Header */}
+      <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '24px 36px', background: T.card, borderBottom: `2px solid ${T.border}` }}>
+        <button onClick={() => nav('/kiosk')} style={{ width: 72, height: 72, borderRadius: '50%', background: T.bg, border: `2px solid ${T.border}`, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Home size={52} color={T.text} />
         </button>
+        <span style={{ ...sc(B.SM, lf), color: T.text }}>메뉴 주문</span>
+        <div style={{ width: 72 }} />
+      </div>
+
+      {/* AI banner */}
+      {agentBanner && (
+        <div style={{ flexShrink: 0, background: C.primaryBg, borderBottom: `2px solid ${C.primaryBorder}`, padding: '20px 36px', display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{ flex: 1, ...sc(BM.XS, lf), color: C.text }}>{agentBanner}</div>
+          <button onClick={() => setAgentBanner('')} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={28} color={C.textMuted} /></button>
+        </div>
+      )}
+
+      {/* Tabs */}
+      <div style={{ flexShrink: 0, display: 'flex', background: T.card, borderBottom: `2px solid ${T.border}` }}>
+        {TABS.map(t => (
+          <button key={t} onClick={() => setTab(t)} style={{
+            flex: 1, padding: '24px 0', border: 'none', cursor: 'pointer', background: 'none',
+            ...sc(NAV.SB, lf),
+            fontWeight: tab === t ? 600 : 500,
+            color: tab === t ? T.tabActive : T.tabInactive,
+            borderBottom: tab === t ? `4px solid ${T.tabActive}` : '4px solid transparent',
+          }}>{t}</button>
+        ))}
+      </div>
+
+      {/* Menu grid */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+          {(tabMenus[tab] || []).map(item => (
+            <MenuCard key={item.id} item={item} onAdd={openDetail} T={T} lf={lf} />
+          ))}
+        </div>
+      </div>
+
+      {/* Cart bar — only when items exist */}
+      {cart.length > 0 && (
+        <div style={{ flexShrink: 0, background: T.card, borderTop: `2px solid ${T.border}`, padding: '20px 36px', display: 'flex', alignItems: 'center', gap: 16 }}>
+          <button onClick={() => setShowCart(true)} style={{ display: 'flex', alignItems: 'center', gap: 16, background: 'none', border: 'none', cursor: 'pointer', flex: 1 }}>
+            <div style={{ position: 'relative' }}>
+              <ShoppingCart size={52} color={T.text} />
+              <span style={{ position: 'absolute', top: -10, right: -10, width: 32, height: 32, borderRadius: '50%', background: T.badgeRed, color: '#fff', fontSize: 20, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{cartCount}</span>
+            </div>
+            <div>
+              <div style={{ ...BM.XS, color: T.sub }}>총 결제금액</div>
+              <div style={{ ...sc(L.XS, lf), color: T.primary }}>{fmt(cartTotal)}</div>
+            </div>
+          </button>
+          <button onClick={() => setShowCart(true)} style={{ padding: '24px 44px', borderRadius: 18, background: T.primary, color: T.primaryText, border: 'none', ...sc(L.XS, lf), cursor: 'pointer' }}>
+            주문하기
+          </button>
+        </div>
+      )}
+
+      {/* Utility bar — always visible */}
+      <div style={{ flexShrink: 0, background: T.card, borderTop: `2px solid ${T.border}`, display: 'flex' }}>
+        {[
+          { icon: <Contrast size={36} color={hc ? C.primary : T.sub} />, label: '대비모드', action: () => setHighContrast(h => !h), active: hc },
+          { icon: <Home size={36} color={T.sub} />,                      label: '처음으로',  action: () => nav('/kiosk'),             active: false },
+          { icon: <Mic size={36} color={C.primary} />,                   label: '말하기',   action: () => fabRef.current?.open(),    active: false },
+        ].map(({ icon, label, action, active }) => (
+          <button
+            key={label}
+            onClick={action}
+            style={{
+              flex: 1, padding: '24px 0', border: 'none',
+              background: active ? C.primaryBg : 'none',
+              cursor: 'pointer',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
+              borderRight: `1px solid ${T.border}`,
+            }}
+          >
+            {icon}
+            <span style={{ ...sc(BM.XS, lf), color: active ? C.primary : T.sub, fontSize: BM.XS.fontSize * lf * 0.8 }}>
+              {label}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {/* AI Assistant FAB */}
+      <AIAssistantFAB
+        ref={fabRef}
+        menus={menus}
+        onAddToCart={handleAddToCart}
+        cart={cart}
+        cartTotal={cartTotal}
+        bottomOffset={240}
+      />
+
+      {/* Detail modal */}
+      {detail && (
+        <div style={{ position: 'absolute', inset: 0, zIndex: 70, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'flex-end' }} onClick={e => e.target === e.currentTarget && setDetail(null)}>
+          <div style={{ width: '100%', background: C.card, borderRadius: '36px 36px 0 0', padding: '48px 44px 64px' }}>
+            <div style={{ display: 'flex', gap: 28, marginBottom: 36 }}>
+              <div style={{ width: 160, height: 160, borderRadius: 24, overflow: 'hidden', background: C.cardAlt, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {detail.img
+                  ? <img src={detail.img} alt={detail.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                  : <Coffee size={52} color={C.textMuted} />}
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ ...sc(B.SM, lf), color: C.text, marginBottom: 10 }}>{detail.name}</div>
+                <div style={{ ...BM.XS, color: C.textSub }}>{detail.description}</div>
+                <div style={{ ...sc(L.XS, lf), color: C.primary, marginTop: 14 }}>{fmt(detail.price)}</div>
+              </div>
+            </div>
+
+            {(detail.options || []).map(opt => {
+              const isTempOpt = opt.name === '온도'
+              return (
+                <div key={opt.name} style={{ marginBottom: 28 }}>
+                  <div style={{ ...B.XS, color: C.textSub, marginBottom: 16 }}>{opt.name} 선택</div>
+                  <div style={{ display: 'flex', gap: 14 }}>
+                    {opt.choices.map(choice => {
+                      const isSelected = detailOptions[opt.name]?.label === choice.label
+                      const accentColor = isTempOpt && choice.label === 'HOT' ? '#dc2626'
+                                        : isTempOpt && choice.label === 'ICE' ? '#0ea5e9' : null
+                      const displayLabel = choice.label === 'HOT' ? '따뜻하게'
+                                         : choice.label === 'ICE' ? '시원하게' : choice.label
+                      return (
+                        <button key={choice.label}
+                          onClick={() => setDetailOptions(prev => ({ ...prev, [opt.name]: choice }))}
+                          style={{
+                            flex: 1, padding: '20px 12px', borderRadius: 18,
+                            background: isSelected ? (accentColor || C.primary) : C.bg,
+                            color: isSelected ? '#fff' : C.text,
+                            border: 'none', ...sc(NAV.SB, lf), cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                          }}
+                        >
+                          {isTempOpt && choice.label === 'HOT' && <Flame size={28} />}
+                          {isTempOpt && choice.label === 'ICE' && <Snowflake size={28} />}
+                          <span>{displayLabel}{choice.price > 0 && ` +${choice.price.toLocaleString()}원`}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })}
+
+            <div style={{ marginBottom: 40 }}>
+              <div style={{ ...B.XS, color: C.textSub, marginBottom: 16 }}>수량</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 28 }}>
+                <button onClick={() => setDetailQty(q => Math.max(1, q - 1))} style={{ width: 72, height: 72, borderRadius: '50%', background: C.bg, border: `2px solid ${C.border}`, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Minus size={28} color={C.text} />
+                </button>
+                <span style={{ ...sc(L.SM, lf), color: C.text, minWidth: 56, textAlign: 'center' }}>{detailQty}</span>
+                <button onClick={() => setDetailQty(q => q + 1)} style={{ width: 72, height: 72, borderRadius: '50%', background: C.primary, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Plus size={28} color={C.primaryText} />
+                </button>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 16 }}>
+              <button onClick={() => setDetail(null)} style={{ flex: 1, padding: '28px', borderRadius: 20, background: C.bg, color: C.text, border: `2px solid ${C.border}`, ...sc(L.XS, lf), cursor: 'pointer' }}>
+                취소
+              </button>
+              <button onClick={addToCart} style={{ flex: 2, padding: '28px', borderRadius: 20, background: C.primary, color: C.primaryText, border: 'none', ...sc(L.XS, lf), cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+                <ShoppingCart size={28} /> 장바구니 담기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function MenuCard({ item, onAdd, T, lf }) {
+  return (
+    <div style={{ background: T.card, borderRadius: 20, border: `2px solid ${T.border}`, overflow: 'hidden', cursor: 'pointer' }} onClick={() => onAdd(item)}>
+      <div style={{ height: 200, background: T.cardAlt, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+        {item.img
+          ? <img src={item.img} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+          : <Coffee size={52} color={T.muted} strokeWidth={1.2} />}
+      </div>
+      <div style={{ padding: '18px 20px' }}>
+        <div style={{ fontSize: BM.XS.fontSize * lf, fontWeight: 600, lineHeight: 1.4, color: T.text, marginBottom: 6 }}>{item.name}</div>
+        <div style={{ fontSize: BM.XS.fontSize, fontWeight: 500, lineHeight: 1.4, color: T.sub, marginBottom: 14, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{item.description}</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ fontSize: L.XS.fontSize * lf, fontWeight: 600, lineHeight: 1.2, color: T.primary }}>{fmt(item.price)}</span>
+          <button onClick={e => { e.stopPropagation(); onAdd(item) }} style={{ padding: '14px 28px', borderRadius: 14, background: T.primary, color: T.primaryText, border: 'none', ...NAV.SB, cursor: 'pointer' }}>담기</button>
+        </div>
       </div>
     </div>
   )
