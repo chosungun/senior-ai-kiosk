@@ -1,6 +1,56 @@
-# AI 음성인식 키오스크
+# 골라봄 (GolraBom)
 
-## 실행
+> 말이 서툴러도, 눈치 보지 않아도 괜찮은 키오스크
+>
+> 2026 AI・SW중심대학 디지털 경진대회 SW 부문 | 팀 아날로그 (한신대학교)
+
+<!-- 팀 슬로건은 초안입니다. 팀 협의 후 자유롭게 수정하세요. -->
+
+---
+
+## 문제의식
+
+고령층에게 키오스크는 여전히 높은 벽입니다.
+
+- 2025년 디지털정보격차 실태조사에 따르면, 키오스크로 대표되는 심화 디지털 기술의 고령층 이용률은 **65.3%**로 일반 국민 대비 약 20%p 낮습니다.
+- 2022년 한국소비자원 조사에서는 60대 이상 응답자의 **71.2%**가 "뒷사람 눈치가 보여서" 키오스크 이용을 중도 포기했다고 답했습니다.
+
+기존 키오스크는 정보를 일방적으로 제공하는 단방향 구조라, 사용자가 막히는 순간 결국 외부 도움에 의존하게 됩니다. **골라봄**은 이 문제를, UI를 더 단순화하는 방식이 아니라 **양방향 대화**로 접근합니다.
+
+## 데모
+
+<!-- 실행 화면 GIF 또는 스크린샷을 여기에 추가하세요. 심사위원이 가장 먼저 보는 부분입니다. -->
+<!-- 예: ![데모](./docs/demo.gif) -->
+
+| 주문 화면 | 어드민 화면 |
+|:---:|:---:|
+| _스크린샷 추가 예정_ | _스크린샷 추가 예정_ |
+
+## 핵심 기능
+
+- 🗣️ **대화형 주문** — 음성/터치로 자연스럽게 주문. 모호한 표현("달달한 거 줘")도 후보 메뉴 추천으로 처리
+- 🧭 **상황별 UI 자동 전환** — 발화 의도에 따라 추천/옵션확인/장바구니확인/결제 화면으로 자동 라우팅
+- ❓ **FAQ 자동 학습** — AI가 답하지 못한 질문을 자동 수집해 어드민에서 FAQ로 등록 가능
+- 🛠️ **매장 어드민** — 메뉴·품절·매장정보·주문내역을 실시간 관리
+
+## AI Agent 동작 구조
+
+_도식 추가 예정_
+
+사용자 발화는 STT로 텍스트 변환된 뒤, 현재 장바구니 상태와 메뉴/FAQ/매장 컨텍스트를 함께 LLM에 전달합니다. LLM은 의도(주문/FAQ/화면전환/불명확)를 분류하고, 상황에 맞는 UI 액션과 답변을 JSON으로 반환합니다.
+
+## 기술 스택
+
+| 영역 | 사용 기술 |
+|------|-----------|
+| Frontend | React, Vite, React Router |
+| Backend | FastAPI, SQLAlchemy |
+| Database | PostgreSQL |
+| LLM | Groq (`openai/gpt-oss-20b`) |
+| STT/TTS | Naver Clova |
+| 배포 | Docker Compose |
+
+## 실행 방법
 
 ```bash
 # 1. 환경변수 파일 생성
@@ -15,9 +65,7 @@ docker compose up --build
 # API 문서: http://localhost:8000/docs
 ```
 
-## 환경변수
-
-`.env` 파일에 아래 항목을 채워야 합니다.
+### 환경변수
 
 | 변수 | 설명 | 발급처 |
 |------|------|--------|
@@ -26,14 +74,7 @@ docker compose up --build
 | `CLOVA_CLIENT_SECRET` | 네이버 Clova STT/TTS 앱 시크릿 | 동일 |
 | `DATABASE_URL` | PostgreSQL 접속 URL | 기본값: Docker Compose 내 DB |
 
-```env
-GROQ_API_KEY=gsk_...
-CLOVA_CLIENT_ID=...
-CLOVA_CLIENT_SECRET=...
-DATABASE_URL=postgresql://kiosk:kiosk1234@db:5432/kiosk
-```
-
-## 구조
+## 프로젝트 구조
 
 ```
 /kiosk            키오스크 화면 (고객용)
@@ -44,44 +85,28 @@ DATABASE_URL=postgresql://kiosk:kiosk1234@db:5432/kiosk
   /orders         주문 내역 조회
 ```
 
-## AI 동작 방식
+## 팀 소개
 
-### 응답 구조
+| 이름 | 학과 | 역할 |
+|------|------|------|
+| 김유진 | AISW학과 | <!-- 역할 채워주세요 --> |
+| 김민채 | AISW학과 | <!-- 역할 채워주세요 --> |
+| 조성은 | AISW학과 | <!-- 역할 채워주세요 --> |
 
-AI(`/api/agent/chat`)는 고객 발화를 받아 아래 필드를 포함한 JSON을 반환합니다.
+**팀명**: 아날로그 · **소속**: 한신대학교
 
-| 필드 | 값 | 설명 |
-|------|----|------|
-| `intent` | `order` \| `faq` \| `complaint` \| `unclear` | 발화 의도 |
-| `items` | 배열 | 주문 파싱 결과 (intent=order일 때만 유효) |
-| `reply` | 문자열 | 고객에게 보여줄 한국어 답변 |
-| `ui_action` | `next_step` \| `stay` \| `call_staff` \| `fallback` | 화면 동작 지시 |
-| `answered_from_context` | `true` \| `false` | DB 컨텍스트(메뉴·FAQ·매장정보)로 답했으면 true |
+## 사용 데이터 및 출처
 
-### 미답변 질문 수집
+| 항목 | 출처 |
+|------|------|
+| 고령층 디지털 기술 이용률 통계 | 2025년 디지털정보격차 실태조사 |
+| 키오스크 이용 중단 사유 통계 | 2022년 한국소비자원 키오스크 이용 실태조사 |
+| LLM API | Groq (`openai/gpt-oss-20b`) |
+| STT/TTS API | 네이버 Clova (NCP) |
+| 메뉴 이미지 | <!-- 자체 제작 여부 또는 출처 명시 --> |
 
-`answered_from_context=false`인 발화는 `unanswered_questions` 테이블에 자동 저장됩니다.  
-어드민 **FAQ 관리** 화면 하단에서 목록을 확인하고, 자주 나오는 질문을 FAQ로 등록할 수 있습니다.
+> 본 프로젝트는 2026 AI・SW중심대학 디지털 경진대회 SW 부문 예선 산출물이며, 사용된 모든 외부 자원의 라이선스 및 사용 조건을 준수합니다.
 
-AI는 컨텍스트 밖의 내용을 **절대 지어내지 않고** 직원 호출로 연결합니다.  
-미답변 질문을 쌓아뒀다가 실제 빈도가 높은 항목만 FAQ로 추가하는 방식으로 운영합니다.
+## License
 
-### Groq 모델 제약
-
-현재 모델: `llama-3.3-70b-versatile` (기본값, `GROQ_MODEL` 환경변수로 변경 가능)
-
-`llama-3.3-70b-versatile`은 `response_format: json_schema`를 지원하지 않습니다.  
-`response_format: json_object`를 사용하며, 스키마 준수는 시스템 프롬프트로 유도합니다.  
-JSON 파싱이 실패할 경우 1회 자동 재시도 후, 그래도 실패하면 502를 반환합니다.
-
-`json_schema` (strict 모드)를 사용하려면 Groq에서 지원하는 모델로 교체하세요.  
-→ [Groq Structured Outputs 지원 모델 목록](https://console.groq.com/docs/structured-outputs#supported-models)
-
-## 기술 스택
-
-- Frontend: React + Vite (React Router)
-- Backend:  FastAPI + SQLAlchemy
-- DB:       PostgreSQL
-- LLM:      Groq (`llama-3.3-70b-versatile`)
-- STT/TTS:  네이버 Clova
-- 배포:     Docker Compose
+<!-- MIT / 대회 제출용 비공개 등 팀 방침에 맞게 명시 -->
