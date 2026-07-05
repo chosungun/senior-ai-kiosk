@@ -2,8 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import {
   Home, X, ShoppingCart, Flame, Snowflake,
-  Plus, Minus, Trash2, Coffee, ChevronRight,
-  Contrast, Mic,
+  Plus, Minus, Trash2, Coffee, Milk, CupSoda, Cake, Check, ChevronRight,
 } from 'lucide-react'
 import { getMenus } from '../../api'
 import { useA11y } from '../../context/AccessibilityContext'
@@ -14,6 +13,14 @@ import AIAssistantFAB from '../../components/AIAssistantFAB'
 
 const TABS = ['커피', '논커피', '티/에이드', '디저트']
 const fmt = n => n.toLocaleString() + '원'
+
+const CATEGORY_ICON = { '커피': Coffee, '논커피': Milk, '티/에이드': CupSoda, '디저트': Cake }
+const CATEGORY_STYLE = {
+  '커피':      { icon: '#9C7A50' },
+  '논커피':    { icon: '#C98A4B' },
+  '티/에이드': { icon: '#3FA88B' },
+  '디저트':    { icon: '#D6789B' },
+}
 
 function mapPreItems(preItems, menus) {
   const norm = s => (s || '').replace(/따뜻한\s*|아이스\s*/g, '').replace(/\s+/g, '').toLowerCase()
@@ -41,7 +48,7 @@ function mapPreItems(preItems, menus) {
 export default function KioskOrder() {
   const nav = useNavigate()
   const location = useLocation()
-  const { highContrast, setHighContrast, largeFont } = useA11y()
+  const { highContrast, largeFont } = useA11y()
 
   const [menus, setMenus]               = useState(FALLBACK)
   const [tab, setTab]                   = useState('커피')
@@ -150,7 +157,7 @@ export default function KioskOrder() {
         <span style={{ ...sc(B.XS, lf), color: T.text }}>장바구니 확인</span>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
+      <div data-kiosk-scroll style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
         {cart.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '120px 40px', color: T.sub, ...BM.XS }}>
             장바구니가 비어있어요
@@ -184,7 +191,7 @@ export default function KioskOrder() {
                     )
                 }
               </div>
-              <div style={{ ...sc(B.XS, lf), color: T.primary, marginTop: 8 }}>{fmt(item.price)}</div>
+              <div style={{ ...sc(B.XS, lf), color: T.text, marginTop: 8 }}>{fmt(item.price)}</div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
               <button onClick={() => changeQty(item.id, -1)} style={{ width: 64, height: 64, borderRadius: '50%', background: T.bg, border: `2px solid ${T.border}`, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -227,10 +234,10 @@ export default function KioskOrder() {
     }}>
       {/* Header */}
       <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '24px 36px', background: T.card, borderBottom: `2px solid ${T.border}` }}>
-        <button onClick={() => nav('/kiosk')} style={{ width: 72, height: 72, borderRadius: '50%', background: T.bg, border: `2px solid ${T.border}`, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Home size={52} color={T.text} />
+        <button onClick={() => nav('/kiosk')} aria-label="처음으로" style={{ width: 72, height: 72, borderRadius: 20, background: T.card, border: `2px solid ${T.border}`, color: T.text, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
+          <Home size={40} color={T.text} strokeWidth={2} />
         </button>
-        <span style={{ ...sc(B.SM, lf), color: T.text }}>메뉴 주문</span>
+        <span style={{ ...sc(B.SM, lf), color: T.text, letterSpacing: '-0.3px' }}>메뉴 주문</span>
         <div style={{ width: 72 }} />
       </div>
 
@@ -243,23 +250,28 @@ export default function KioskOrder() {
       )}
 
       {/* Tabs */}
-      <div style={{ flexShrink: 0, display: 'flex', background: T.card, borderBottom: `2px solid ${T.border}` }}>
-        {TABS.map(t => (
-          <button key={t} onClick={() => setTab(t)} style={{
-            flex: 1, padding: '24px 0', border: 'none', cursor: 'pointer', background: 'none',
-            ...sc(NAV.SB, lf),
-            fontWeight: tab === t ? 600 : 500,
-            color: tab === t ? T.tabActive : T.tabInactive,
-            borderBottom: tab === t ? `4px solid ${T.tabActive}` : '4px solid transparent',
-          }}>{t}</button>
-        ))}
+      <div style={{ flexShrink: 0, display: 'flex', gap: 10, padding: '18px 28px 20px', background: T.card, borderBottom: `2px solid ${T.border}` }}>
+        {TABS.map(t => {
+          const active = tab === t
+          return (
+            <button key={t} onClick={() => setTab(t)} style={{
+              flex: 1, padding: '20px 8px', border: 'none', borderRadius: 18, cursor: 'pointer',
+              background: active ? T.tabActive : 'transparent',
+              color: active ? T.primaryText : T.tabInactive,
+              ...sc(NAV.SB, lf),
+              fontWeight: active ? 600 : 500,
+              boxShadow: active && !hc ? '0 6px 18px rgba(37,99,235,0.28)' : 'none',
+              transition: 'background-color .18s ease, color .18s ease',
+            }}>{t}</button>
+          )
+        })}
       </div>
 
       {/* Menu grid */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+      <div data-kiosk-scroll style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32 }}>
           {(tabMenus[tab] || []).map(item => (
-            <MenuCard key={item.id} item={item} onAdd={openDetail} T={T} lf={lf} />
+            <MenuCard key={item.id} item={item} onAdd={openDetail} T={T} lf={lf} hc={hc} />
           ))}
         </div>
       </div>
@@ -283,31 +295,6 @@ export default function KioskOrder() {
         </div>
       )}
 
-      {/* Utility bar — always visible */}
-      <div style={{ flexShrink: 0, background: T.card, borderTop: `2px solid ${T.border}`, display: 'flex' }}>
-        {[
-          { icon: <Contrast size={36} color={hc ? C.primary : T.sub} />, label: '대비모드', action: () => setHighContrast(h => !h), active: hc },
-          { icon: <Home size={36} color={T.sub} />,                      label: '처음으로',  action: () => nav('/kiosk'),             active: false },
-          { icon: <Mic size={36} color={C.primary} />,                   label: '말하기',   action: () => fabRef.current?.open(),    active: false },
-        ].map(({ icon, label, action, active }) => (
-          <button
-            key={label}
-            onClick={action}
-            style={{
-              flex: 1, padding: '24px 0', border: 'none',
-              background: active ? C.primaryBg : 'none',
-              cursor: 'pointer',
-              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
-              borderRight: `1px solid ${T.border}`,
-            }}
-          >
-            {icon}
-            <span style={{ ...sc(BM.XS, lf), color: active ? C.primary : T.sub, fontSize: BM.XS.fontSize * lf * 0.8 }}>
-              {label}
-            </span>
-          </button>
-        ))}
-      </div>
 
       {/* AI Assistant FAB */}
       <AIAssistantFAB
@@ -316,7 +303,7 @@ export default function KioskOrder() {
         onAddToCart={handleAddToCart}
         cart={cart}
         cartTotal={cartTotal}
-        bottomOffset={240}
+        bottomOffset={80}
       />
 
       {/* Detail modal */}
@@ -332,7 +319,7 @@ export default function KioskOrder() {
               <div style={{ flex: 1 }}>
                 <div style={{ ...sc(B.SM, lf), color: C.text, marginBottom: 10 }}>{detail.name}</div>
                 <div style={{ ...BM.XS, color: C.textSub }}>{detail.description}</div>
-                <div style={{ ...sc(L.XS, lf), color: C.primary, marginTop: 14 }}>{fmt(detail.price)}</div>
+                <div style={{ ...sc(L.XS, lf), color: C.text, marginTop: 14 }}>{fmt(detail.price)}</div>
               </div>
             </div>
 
@@ -398,20 +385,47 @@ export default function KioskOrder() {
   )
 }
 
-function MenuCard({ item, onAdd, T, lf }) {
+function MenuCard({ item, onAdd, T, lf, hc }) {
+  const Icon = CATEGORY_ICON[item.category] || Coffee
+  const style = CATEGORY_STYLE[item.category] || { icon: '#94A3B8' }
+  const tint = T.cardAlt
+  const iconColor = hc ? T.muted : style.icon
+
   return (
-    <div style={{ background: T.card, borderRadius: 20, border: `2px solid ${T.border}`, overflow: 'hidden', cursor: 'pointer' }} onClick={() => onAdd(item)}>
-      <div style={{ height: 200, background: T.cardAlt, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+    <div style={{
+      display: 'flex', flexDirection: 'column',
+      background: T.card, borderRadius: 26, border: `2px solid ${T.border}`, overflow: 'hidden',
+      boxShadow: hc ? 'none' : '0 4px 20px rgba(17,26,48,0.06)',
+      cursor: 'pointer',
+    }} onClick={() => onAdd(item)}>
+      <div style={{ height: 260, background: tint, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', position: 'relative', flexShrink: 0 }}>
         {item.img
           ? <img src={item.img} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-          : <Coffee size={52} color={T.muted} strokeWidth={1.2} />}
+          : (
+            <>
+              <Icon size={72} color={iconColor} strokeWidth={1.7} />
+              <span style={{
+                position: 'absolute', bottom: 12, right: 16,
+                fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 14, letterSpacing: '0.5px',
+                color: iconColor, opacity: 0.55,
+              }}>PHOTO</span>
+            </>
+          )}
       </div>
-      <div style={{ padding: '18px 20px' }}>
-        <div style={{ fontSize: BM.XS.fontSize * lf, fontWeight: 600, lineHeight: 1.4, color: T.text, marginBottom: 6 }}>{item.name}</div>
-        <div style={{ fontSize: BM.XS.fontSize, fontWeight: 500, lineHeight: 1.4, color: T.sub, marginBottom: 14, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{item.description}</div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: L.XS.fontSize * lf, fontWeight: 600, lineHeight: 1.2, color: T.primary }}>{fmt(item.price)}</span>
-          <button onClick={e => { e.stopPropagation(); onAdd(item) }} style={{ padding: '14px 28px', borderRadius: 14, background: T.primary, color: T.primaryText, border: 'none', ...NAV.SB, cursor: 'pointer' }}>담기</button>
+      <div style={{ padding: '20px 22px 22px', display: 'flex', flexDirection: 'column', flex: 1 }}>
+        <div style={{ fontSize: 38 * lf, fontWeight: 700, lineHeight: 1.4, color: T.text, marginBottom: 6 }}>{item.name}</div>
+        <div style={{ fontSize: 26 * lf, fontWeight: 400, lineHeight: 1.4, color: T.sub, marginBottom: 16, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{item.description}</div>
+        <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ fontSize: L.XS.fontSize * lf, fontWeight: 600, lineHeight: 1.2, color: T.text }}>{fmt(item.price)}</span>
+          <button onClick={e => { e.stopPropagation(); onAdd(item) }} style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            padding: '16px 26px', borderRadius: 16,
+            background: T.primary, color: T.primaryText, border: 'none',
+            ...sc(NAV.SB, lf), fontWeight: 700, cursor: 'pointer',
+          }}>
+            <Check size={22} strokeWidth={2.6} />
+            담기
+          </button>
         </div>
       </div>
     </div>

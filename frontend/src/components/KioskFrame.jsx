@@ -1,13 +1,99 @@
 import { useState, useEffect } from 'react'
 import { Outlet } from 'react-router-dom'
+import { Contrast, ArrowDownToLine, ZoomIn, Volume2 } from 'lucide-react'
+import { useA11y } from '../context/AccessibilityContext'
+import { getC } from '../styles/colors'
+import { FF, BM, sc } from '../styles/typography'
 
 const W = 1080
 const H = 1920
 
-// Dev-only: wraps kiosk routes in a scaled portrait frame so you can
-// preview the 1080×1920 kiosk on a regular laptop screen.
-// In production (VITE_KIOSK_FRAME=off or !DEV) renders Outlet directly.
-export default function KioskFrame() {
+function A11yBottomBar() {
+  const { highContrast, setHighContrast, largeFont, setLargeFont, setSpeechRate } = useA11y()
+  const hc = highContrast
+  const lf = largeFont ? 1.2 : 1
+  const C = getC(hc)
+  const [rateStep, setRateStep] = useState(5)
+
+  const changeRate = (delta) => {
+    const next = Math.min(10, Math.max(1, rateStep + delta))
+    setRateStep(next)
+    setSpeechRate(0.5 + next * 0.1)
+  }
+
+  const scrollDown = () => {
+    document.querySelector('[data-kiosk-scroll]')?.scrollBy({ top: 300, behavior: 'smooth' })
+  }
+
+  return (
+    <div style={{
+      flexShrink: 0,
+      display: 'flex', alignItems: 'center',
+      padding: '20px 28px 24px', gap: 14,
+      background: C.card, borderTop: `1px solid ${C.border}`,
+      fontFamily: FF,
+    }}>
+      <A11yBtn
+        icon={<Contrast size={34} color={highContrast ? C.primary : C.textSub} />}
+        label="고대비"
+        active={highContrast}
+        onClick={() => setHighContrast(!highContrast)}
+        C={C} lf={lf}
+      />
+      <A11yBtn
+        icon={<ArrowDownToLine size={34} color={C.textSub} />}
+        label="화면 내리기"
+        onClick={scrollDown}
+        C={C} lf={lf}
+      />
+      <A11yBtn
+        icon={<ZoomIn size={34} color={largeFont ? C.primary : C.textSub} />}
+        label="화면확대"
+        active={largeFont}
+        onClick={() => setLargeFont(!largeFont)}
+        C={C} lf={lf}
+      />
+
+      <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 14 }}>
+        <Volume2 size={38} color={C.textSub} />
+        <button onClick={() => changeRate(-1)} style={{
+          width: 72, height: 72, borderRadius: 18,
+          border: 'none', background: C.bg,
+          cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: C.textSub, fontSize: 36, fontWeight: 600,
+        }}>−</button>
+        <span style={{ color: C.text, minWidth: 44, textAlign: 'center', fontWeight: 700, fontSize: 36 }}>
+          {rateStep}
+        </span>
+        <button onClick={() => changeRate(+1)} style={{
+          width: 72, height: 72, borderRadius: 18,
+          border: 'none', background: C.bg,
+          cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: C.textSub, fontSize: 36, fontWeight: 600,
+        }}>+</button>
+      </div>
+    </div>
+  )
+}
+
+function A11yBtn({ icon, label, active, onClick, C, lf }) {
+  return (
+    <button onClick={onClick} style={{
+      display: 'flex', alignItems: 'center', gap: 10,
+      padding: '14px 20px', borderRadius: 14,
+      border: 'none',
+      background: active ? C.primaryBg : C.bg,
+      cursor: 'pointer',
+      ...sc(BM.XS, lf), color: active ? C.primary : C.textSub,
+      fontWeight: 500,
+    }}>
+      {icon}
+      {label}
+    </button>
+  )
+}
+
+export default function KioskFrame({ showA11yBar = true }) {
   const showFrame =
     import.meta.env.DEV && import.meta.env.VITE_KIOSK_FRAME !== 'off'
 
@@ -25,7 +111,16 @@ export default function KioskFrame() {
     return () => window.removeEventListener('resize', calc)
   }, [showFrame])
 
-  if (!showFrame) return <Outlet />
+  if (!showFrame) return (
+    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
+        <div style={{ position: 'absolute', inset: 0 }}>
+          <Outlet />
+        </div>
+      </div>
+      {showA11yBar && <A11yBottomBar />}
+    </div>
+  )
 
   return (
     <div style={{
@@ -76,8 +171,14 @@ export default function KioskFrame() {
           overflowX: 'hidden', overflowY: 'hidden',
           position: 'relative',
           background: '#f8fafc',
+          display: 'flex', flexDirection: 'column',
         }}>
-          <Outlet />
+          <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
+            <div style={{ position: 'absolute', inset: 0 }}>
+              <Outlet />
+            </div>
+          </div>
+          {showA11yBar && <A11yBottomBar />}
         </div>
 
         {/* bottom chin */}

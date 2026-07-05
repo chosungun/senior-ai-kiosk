@@ -4,6 +4,7 @@ from typing import Optional, List
 from sqlalchemy.orm import Session
 from database import get_db
 from models.models import Menu
+from routers.auth import verify_token
 
 router = APIRouter()
 
@@ -52,7 +53,7 @@ def get_menus(
     return q.all()
 
 @router.post("/", status_code=201, response_model=MenuOut)
-def create_menu(body: MenuCreate, db: Session = Depends(get_db)):
+def create_menu(body: MenuCreate, db: Session = Depends(get_db), _=Depends(verify_token)):
     menu = Menu(**body.model_dump())
     db.add(menu)
     db.commit()
@@ -60,7 +61,7 @@ def create_menu(body: MenuCreate, db: Session = Depends(get_db)):
     return menu
 
 @router.patch("/{menu_id}", response_model=MenuOut)
-def update_menu(menu_id: int, body: MenuUpdate, db: Session = Depends(get_db)):
+def update_menu(menu_id: int, body: MenuUpdate, db: Session = Depends(get_db), _=Depends(verify_token)):
     menu = db.query(Menu).filter(Menu.id == menu_id).first()
     if not menu:
         raise HTTPException(status_code=404, detail="메뉴를 찾을 수 없어요")
@@ -71,7 +72,7 @@ def update_menu(menu_id: int, body: MenuUpdate, db: Session = Depends(get_db)):
     return menu
 
 @router.delete("/{menu_id}", status_code=204)
-def delete_menu(menu_id: int, db: Session = Depends(get_db)):
+def delete_menu(menu_id: int, db: Session = Depends(get_db), _=Depends(verify_token)):
     menu = db.query(Menu).filter(Menu.id == menu_id).first()
     if not menu:
         raise HTTPException(status_code=404, detail="메뉴를 찾을 수 없어요")

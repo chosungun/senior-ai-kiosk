@@ -77,19 +77,27 @@ export default function KioskPayment() {
         <Smile size={52} color={C.positive} />
       </div>
 
-      <div style={{
-        background: C.cardAlt, borderRadius: 14, padding: '18px 24px', marginBottom: 16,
-        border: `1.5px solid ${C.border}`, textAlign: 'center',
-        ...sc(BM.XS, lf), color: C.textSub,
-      }}>
-        선택하신 메뉴가 맞는지 확인해 보세요!
+      <div style={{ position: 'relative', marginBottom: 28 }}>
+        <div style={{
+          background: C.cardAlt, borderRadius: 14, padding: '18px 24px',
+          border: `1.5px solid ${C.border}`, textAlign: 'center',
+          ...sc(BM.XS, lf), color: C.textSub, fontWeight: 600,
+        }}>
+          "선택하신 메뉴가 맞는지 확인해 보세요!"
+        </div>
+        <div style={{
+          position: 'absolute', left: '50%', bottom: -8,
+          transform: 'translateX(-50%) rotate(45deg)',
+          width: 16, height: 16, background: C.cardAlt,
+          borderRight: `1.5px solid ${C.border}`, borderBottom: `1.5px solid ${C.border}`,
+        }} />
       </div>
 
       <div style={{
-        background: T.card, borderRadius: 20, border: `2px solid ${T.border}`,
+        background: T.card, borderRadius: 20, border: `2px solid ${T.primary}`,
         overflow: 'hidden', marginBottom: 28, marginTop: 8,
       }}>
-        <div style={{ ...sc(B.XS, lf), color: T.sub, padding: '24px 28px 16px' }}>주문 목록</div>
+        <div style={{ ...sc(B.XS, lf), color: T.text, padding: '24px 28px 16px' }}>주문 목록</div>
         <div style={{ padding: '0 28px' }}>
           {cart.map((item, i) => (
             <div key={i} style={{
@@ -97,17 +105,23 @@ export default function KioskPayment() {
               paddingBottom: 18, marginBottom: 18,
               borderBottom: i < cart.length - 1 ? `1.5px solid ${T.border}` : 'none',
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 {item.temp && (
                   item.temp === '따뜻하게'
                     ? <Flame size={28} color="#dc2626" />
                     : <Snowflake size={28} color="#0ea5e9" />
                 )}
-                <span style={{ fontSize: BM.XS.fontSize * lf, fontWeight: 500, lineHeight: 1.4, color: T.text }}>
-                  {item.name} {item.qty}개
+                <span style={{ fontSize: BM.XS.fontSize * lf, fontWeight: 700, lineHeight: 1.4, color: T.text }}>
+                  {item.name}
+                </span>
+                <span style={{
+                  fontSize: (BM.XS.fontSize - 4) * lf, fontWeight: 500, color: T.sub,
+                  background: C.cardAlt, padding: '4px 12px', borderRadius: 8,
+                }}>
+                  {item.qty}개
                 </span>
               </div>
-              <span style={{ fontSize: B.XS.fontSize * lf, fontWeight: 600, lineHeight: 1.4, color: T.text }}>
+              <span style={{ fontSize: B.XS.fontSize * lf, fontWeight: 700, lineHeight: 1.4, color: T.text }}>
                 {fmt(item.price * item.qty)}
               </span>
             </div>
@@ -116,10 +130,10 @@ export default function KioskPayment() {
         <div style={{
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
           padding: '24px 28px',
-          background: C.primary,
+          background: hc ? C.primary : '#1E293B',
         }}>
           <span style={{ ...sc(B.XS, lf), color: C.primaryText }}>총 결제금액</span>
-          <span style={{ ...sc(L.SM, lf), color: hc ? C.primaryText : C.warningBorder }}>{fmt(total)}</span>
+          <span style={{ ...sc(L.SM, lf), color: hc ? C.primaryText : '#FBBF24' }}>{fmt(total)}</span>
         </div>
       </div>
 
@@ -339,7 +353,7 @@ function Screen({ title, children, T, lf, onBack }) {
         )}
         <span style={{ ...sc(B.SM, lf), color: T.text }}>{title}</span>
       </div>
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '40px 36px 56px', overflow: 'auto' }}>
+      <div data-kiosk-scroll style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '40px 36px 56px', overflow: 'auto' }}>
         {children}
       </div>
     </div>

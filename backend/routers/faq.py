@@ -4,6 +4,7 @@ from typing import Optional, List
 from sqlalchemy.orm import Session
 from database import get_db
 from models.models import FAQ
+from routers.auth import verify_token
 
 router = APIRouter()
 
@@ -33,7 +34,7 @@ def get_faqs(db: Session = Depends(get_db)):
     return db.query(FAQ).filter(FAQ.is_active == True).all()
 
 @router.post("/", status_code=201, response_model=FAQOut)
-def create_faq(body: FAQCreate, db: Session = Depends(get_db)):
+def create_faq(body: FAQCreate, db: Session = Depends(get_db), _=Depends(verify_token)):
     faq = FAQ(**body.model_dump())
     db.add(faq)
     db.commit()
@@ -41,7 +42,7 @@ def create_faq(body: FAQCreate, db: Session = Depends(get_db)):
     return faq
 
 @router.patch("/{faq_id}", response_model=FAQOut)
-def update_faq(faq_id: int, body: FAQUpdate, db: Session = Depends(get_db)):
+def update_faq(faq_id: int, body: FAQUpdate, db: Session = Depends(get_db), _=Depends(verify_token)):
     faq = db.query(FAQ).filter(FAQ.id == faq_id).first()
     if not faq:
         raise HTTPException(status_code=404, detail="FAQ를 찾을 수 없어요")
@@ -52,7 +53,7 @@ def update_faq(faq_id: int, body: FAQUpdate, db: Session = Depends(get_db)):
     return faq
 
 @router.delete("/{faq_id}", status_code=204)
-def delete_faq(faq_id: int, db: Session = Depends(get_db)):
+def delete_faq(faq_id: int, db: Session = Depends(get_db), _=Depends(verify_token)):
     faq = db.query(FAQ).filter(FAQ.id == faq_id).first()
     if not faq:
         raise HTTPException(status_code=404, detail="FAQ를 찾을 수 없어요")

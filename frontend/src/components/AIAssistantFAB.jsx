@@ -294,69 +294,56 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
         total: cartTotal,
         history,
       })
-      const { ui_action, reply, recommended_menus = [], items_to_add = [] } = agent
+      const { class: cls, response: reply, action, items: rawItems = [], menus: recMenus = [], screen } = agent
 
-      switch (ui_action) {
+      switch (cls) {
 
         // ── FAQ: 말풍선만
-        case 'show_chat_bubble':
+        case 'FAQ':
           await speak(reply)
           break
 
-        // ── 추천 메뉴 제시
-        case 'show_recommendations':
-          setPendingRecs(recommended_menus)
+        // ── 메뉴 추천 제시
+        case 'RECOMMEND':
+          setPendingRecs(recMenus)
           await speak(reply)
           break
 
-        // ── 옵션 추가 요청 (온도 미선택 등)
-        case 'ask_options': {
-          const items = resolveItems(items_to_add, menus)
+        // ── 주문
+        case 'ORDER': {
+          const items = resolveItems(rawItems, menus)
           if (items.length > 0) {
             const msgId = nextId()
             setMessages(prev => [...prev, { id: msgId, role: 'ai', type: 'order', items, reply }])
             setOrderItems(prev => ({ ...prev, [msgId]: items.map(it => ({ ...it })) }))
-            const firstUnresolved = (items[0].menuOptions || []).find(o => !items[0].selectedOptions[o.name])
-            if (firstUnresolved) setOptCtx({ msgId, optName: firstUnresolved.name, choices: firstUnresolved.choices })
+            if (action === 'ask_options') {
+              const firstUnresolved = (items[0].menuOptions || []).find(o => !items[0].selectedOptions[o.name])
+              if (firstUnresolved) setOptCtx({ msgId, optName: firstUnresolved.name, choices: firstUnresolved.choices })
+            } else {
+              setOptCtx(null)
+            }
           }
           await speak(reply)
           break
         }
 
-        // ── 확인 모달 (담기/취소)
-        case 'show_confirm_modal': {
-          const items = resolveItems(items_to_add, menus)
-          if (items.length > 0) {
-            const msgId = nextId()
-            setMessages(prev => [...prev, { id: msgId, role: 'ai', type: 'order', items, reply }])
-            setOrderItems(prev => ({ ...prev, [msgId]: items.map(it => ({ ...it })) }))
-            setOptCtx(null)
+        // ── 화면 전환 / 시스템 제어
+        case 'UI_CONTROL':
+          await speak(reply)
+          switch (screen) {
+            case 'payment':
+              setTimeout(() => { nav('/kiosk/payment', { state: { cart, total: cartTotal } }); setOpen(false) }, 900)
+              break
+            case 'home':
+              setTimeout(() => { nav('/kiosk'); setOpen(false) }, 900)
+              break
+            case 'close_overlay':
+              setTimeout(() => setOpen(false), 900)
+              break
+            case 'call_staff':
+            default:
+              break
           }
-          await speak(reply)
-          break
-        }
-
-        // ── 결제 화면 이동
-        case 'go_checkout':
-          await speak(reply)
-          setTimeout(() => { nav('/kiosk/payment', { state: { cart, total: cartTotal } }); setOpen(false) }, 900)
-          break
-
-        // ── 홈 화면 이동
-        case 'go_home':
-          await speak(reply)
-          setTimeout(() => { nav('/kiosk'); setOpen(false) }, 900)
-          break
-
-        // ── 직원 호출
-        case 'call_staff':
-          await speak(reply)
-          break
-
-        // ── 오버레이 닫기
-        case 'close_overlay':
-          await speak(reply)
-          setTimeout(() => setOpen(false), 900)
           break
 
         // ── fallback / unclear
@@ -396,7 +383,7 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
       {!open && (
         <div style={{
           position: 'absolute', bottom: bottomOffset, right: 48, zIndex: 20,
-          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16,
+          display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 16,
         }}>
           <div style={{
             background: hc ? C.card : '#fff', border: `2px solid ${C.border}`,
@@ -417,11 +404,6 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
             }}
           >
             <Bot size={60} color={C.primaryText} />
-            <div style={{
-              position: 'absolute', top: 10, right: 10,
-              width: 22, height: 22, borderRadius: '50%',
-              background: '#22C55E', border: `3px solid ${C.primary}`,
-            }} />
           </button>
         </div>
       )}
@@ -497,9 +479,9 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
 
             {/* 상태 텍스트 */}
             <div style={{ ...sc(BM.SM, lf), color: C.textSub, textAlign: 'center', flexShrink: 0 }}>
-              {voiceState === 'listening'  && '듣고 있어요... (버튼에서 손 떼면 전송)'}
+              {voiceState === 'listening'  && '듣고 있어요... (말이 끝나면 자동으로 전송돼요)'}
               {voiceState === 'processing' && '생각 중이에요...'}
-              {voiceState === 'idle'       && '버튼을 누르는 동안 말씀해 주세요'}
+              {voiceState === 'idle'       && '마이크 버튼을 눌러 말씀해 주세요'}
             </div>
 
             {/* 텍스트 출력 박스 (어절별 출력) */}
@@ -609,12 +591,13 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
               </div>
             )}
 
-            {/* 마이크 버튼 (누르는 동안만 인식) */}
+            {/* 마이크 버튼 (탭하면 시작, 말이 끝나면 자동으로 인식 종료) */}
             <button
-              onPointerDown={e => { e.preventDefault(); if (voiceState !== 'processing') startVoice() }}
-              onPointerUp={() => { if (voiceState === 'listening') stopVoice() }}
-              onPointerLeave={() => { if (voiceState === 'listening') stopVoice() }}
-              onPointerCancel={() => { if (voiceState === 'listening') stopVoice() }}
+              onClick={() => {
+                if (voiceState === 'processing') return
+                if (voiceState === 'listening') stopVoice()
+                else startVoice()
+              }}
               disabled={voiceState === 'processing'}
               style={{
                 width: 168, height: 168, borderRadius: '50%', flexShrink: 0,

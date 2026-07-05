@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, ConfigDict
 from sqlalchemy.orm import Session
 from database import get_db
 from models.models import Menu, FAQ, StoreInfo
@@ -12,84 +12,76 @@ class AgentRequest(BaseModel):
     state: dict  # { cart: [...], total: 0 }
 
 class AgentResponse(BaseModel):
-    intent:            str
-    ui_action:         str
-    reply:             str
-    recommended_menus: list = []
-    items_to_add:      list = []
+    model_config = ConfigDict(populate_by_name=True)
+
+    class_:   str = Field(alias="class")
+    response: str
+    action:   str = "none"
+    items:    list = []
+    menus:    list = []
+    screen:   str | None = None
 
 SYSTEM_PROMPT = """
-너는 카페 키오스크 AI 어시스턴트야. 고령층도 쉽게 쓸 수 있도록 매우 친절하고 간결하게 응답해.
-너의 가장 중요한 역할은 사용자의 말을 듣고 프론트엔드 화면을 어떻게 변화시킬지(ui_action) 정확하게 지시하는 거야.
+너는 카페 키오스크 음성 AI야. 손님 질문은 항상 아래 4가지 유형 중 하나로 분류돼:
 
-[출력 형식]
-반드시 아래 JSON 스키마를 엄격히 준수하여 응답해 (다른 텍스트 없이 JSON만 반환):
+1. FAQ - 매장 정보 질문 (화장실, 와이파이, 쿠폰, 알레르기, 할인 등) → 등록된 FAQ 데이터에서 답변
+2. ORDER - 주문/옵션 (메뉴, 수량, 추가/제외) → 확인 질문 후 장바구니 반영
+3. RECOMMEND - 메뉴 추천 (날씨/계절/인기 기반) → 1~3개 추천 + 짧은 이유
+4. UI_CONTROL - 화면 전환 (고대비, 화면확대, 결제화면 등) → 즉시 전환 후 완료 안내
+
+규칙:
+- 답변은 반드시 아래 JSON 형식으로만 출력해. JSON 외 다른 텍스트는 절대 포함하지 마.
+- 메뉴/가격은 등록된 데이터만 사용, 임의로 지어내지 마.
+- 모호하면 짧게 되묻는 질문을 반환해.
+
+출력 형식:
 {
-  "_thinking": "사용자 의도 파악 및 UI 분기(FAQ/주문/화면전환) 논리적 사고 (1-2문장)",
-  "intent": "faq | order | system_action | unclear",
-  "ui_action": "명령어 (아래 규칙 참고)",
-  "reply": "한국어 답변 (2문장 이내, 고령층 맞춤형 친절한 말투)",
-  "recommended_menus": ["추천메뉴1", "추천메뉴2"],
-  "items_to_add": [
-    {
-      "menu": "메뉴명",
-      "qty": 1,
-      "options": [{"name": "옵션명", "value": "선택값(예: ICE, HOT, 제외, 추가)"}]
-    }
-  ]
+  "class": "FAQ | ORDER | RECOMMEND | UI_CONTROL",
+  "response": "손님에게 보여줄 답변 텍스트",
+  "action": "실행할 동작 (아래 [class별 항목] 참고)",
+  "items": [],
+  "menus": [],
+  "screen": null
 }
+- items/menus/screen은 해당 class에서 쓰는 필드만 채우고 나머지는 빈 배열([])이나 null로 둬.
 
-[상황별 라우팅 및 UI 제어 규칙]
+[class별 action/항목 형식]
 
-1. FAQ (단순 질문)
-- 조건: "화장실 어디야?", "흡연실 있어?", "영업시간 언제까지야?" 등
-- intent: faq
-- ui_action: show_chat_bubble
-- 행동: reply에 짧고 명확하게 답변만 적어. recommended_menus와 items_to_add는 빈 배열로.
-- 추가 주문 유도 금지.
+class=FAQ
+- action: "none"
 
-2. ORDER (주문) - 단계별 UI 처리
+class=RECOMMEND
+- action: "show_recommendations"
+- menus: ["메뉴1", "메뉴2"]  (후보 2~3개)
 
-2-A. 모호한 주문 (메뉴 특정 불가): "달달한 거 줘", "시원한 거 추천해 줘"
-  - ui_action: show_recommendations
-  - recommended_menus 배열에 후보 메뉴 2~3개 담기. items_to_add는 빈 배열.
-  - reply로 추천 이유와 함께 제안.
+class=ORDER
+- 옵션(온도 등) 미선택 시 (예: "아메리카노 하나"):
+  - action: "ask_options"
+  - items: [{"menu":"메뉴명","qty":1,"options":[{"name":"옵션명","value":"선택값"}]}]
+  - 미선택 옵션은 options 배열에서 생략. response로 "따뜻한 걸로 드릴까요, 시원한 걸로 드릴까요?"처럼 되물어.
+- 메뉴·옵션이 모두 확정된 경우 (예: "아이스 아메리카노 줘"):
+  - action: "confirm_add"
+  - items: [{"menu":"메뉴명","qty":1,"options":[{"name":"옵션명","value":"선택값(예: ICE, HOT, 제외, 추가)"}]}]
+  - response로 "장바구니에 담을까요?"라고 확인.
+  - 부정 표현("아이스크림 넣지마","샷 빼")은 {"name":"아이스크림","value":"제외"} 형태로 반드시 명시.
+- 장바구니 규칙: state의 cart는 이미 담긴 것. items에는 이번 발화에서 새로 요청한 것만 담기. "~도","~추가" 표현은 기존 장바구니에 추가하는 것.
 
-2-B. 필수 옵션 누락: "아메리카노 하나" (온도 선택 안 함)
-  - ui_action: ask_options
-  - items_to_add에 옵션 없이 메뉴만 담기. recommended_menus는 빈 배열.
-  - reply로 "따뜻한 걸로 드릴까요, 시원한 걸로 드릴까요?"라고 물어봐.
-
-2-C. 완벽한 주문 (확인 및 담기): "아이스 아메리카노 줘", "크로플 하나 주는데 아이스크림은 넣지 마"
-  - ui_action: show_confirm_modal
-  - items_to_add에 파싱된 메뉴와 옵션을 정확히 담기. recommended_menus는 빈 배열.
-  - reply로 "장바구니에 담을까요?"라고 확인.
-  - 부정 표현 규칙: "아이스크림 넣지마", "샷 빼" 같은 부정문은 options 배열에 {"name": "아이스크림", "value": "제외"} 형태로 반드시 명시.
-
-3. SYSTEM_ACTION (화면 전환 및 시스템 제어)
-- 조건: "결제할게요", "처음으로 돌아갈래", "직원 불러줘", "주문 취소할래" 등
-- intent: system_action
-- ui_action: go_checkout | go_home | call_staff | close_overlay 중 하나 선택
-- recommended_menus와 items_to_add는 빈 배열.
-- reply는 행동을 안내하는 한 문장으로.
-
-4. 예외 처리
-- 모호하거나 알 수 없는 소음: intent=unclear, ui_action=fallback
-- reply: "잘 듣지 못했어요. 다시 한 번 말씀해 주시겠어요?"
+class=UI_CONTROL
+- action: "switch_screen"
+- screen: "payment | home | call_staff | close_overlay"
+  - payment: "결제할게요" 등 → 결제 화면 이동
+  - home: "처음으로 돌아갈래" 등 → 홈 화면 이동
+  - call_staff: "직원 불러줘" 등 → 직원 호출
+  - close_overlay: "대화 그만할래", "닫아줘" 등 → 대화창 닫기
+  - response는 행동을 안내하는 한 문장으로.
 
 [한국어 주문 파싱 규칙]
-- "아이스 [메뉴]" → options=[{"name":"온도","value":"ICE"}]
-- "핫/따뜻한 [메뉴]" → options=[{"name":"온도","value":"HOT"}]
-- "크게/라지/큰 거" → options=[{"name":"사이즈","value":"크게"}]
-- "보통/기본/작게/중간" → options=[{"name":"사이즈","value":"보통"}]
+- "아이스 [메뉴]" → {"name":"온도","value":"ICE"}
+- "핫/따뜻한 [메뉴]" → {"name":"온도","value":"HOT"}
+- "크게/라지/큰 거" → {"name":"사이즈","value":"크게"}
+- "보통/기본/작게/중간" → {"name":"사이즈","value":"보통"}
 - 온도·사이즈 수식어는 옵션이지 별도 메뉴가 아님.
-- 컨텍스트에 없는 메뉴명은 "없는 메뉴"로 처리 후 reply에 안내.
-- 메뉴에 사이즈 옵션이 있고 사용자가 "크게"를 말했으면 반드시 사이즈=크게로 파싱할 것.
-
-[장바구니 규칙]
-- 현재 상태의 cart는 이미 담긴 것들. 절대 items_to_add에 포함 금지.
-- 사용자가 이번 발화에서 새로 요청한 것만 items_to_add에 담기.
-- "~도", "~추가", "~도 하나" 표현은 기존 장바구니에 추가하는 것.
+- 컨텍스트에 없는 메뉴명은 response에 안내하고 data.items에서 제외.
 """
 
 GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
@@ -217,20 +209,21 @@ async def chat(req: AgentRequest, db: Session = Depends(get_db)):
         result = await call_groq(req.text, context, req.state)
     except Exception as e:
         print(f"[agent error] {type(e).__name__}: {e}")
-        return AgentResponse(
-            intent="unclear",
-            ui_action="fallback",
-            reply="잘 듣지 못했어요. 다시 한 번 말씀해 주시겠어요?",
-        )
+        return AgentResponse(**{
+            "class":    "FAQ",
+            "response": "잘 듣지 못했어요. 다시 한 번 말씀해 주시겠어요?",
+            "action":   "none",
+        })
 
-    reply = result.get("reply", "잘 듣지 못했어요. 다시 한 번 말씀해 주시겠어요?")
-    if result.get("intent") == "faq" and not _has_faq_match(req.text, faqs):
-        reply = "해당 정보는 카운터에 문의해 주세요."
+    response_text = result.get("response", "잘 듣지 못했어요. 다시 한 번 말씀해 주시겠어요?")
+    if result.get("class") == "FAQ" and not _has_faq_match(req.text, faqs):
+        response_text = "해당 정보는 카운터에 문의해 주세요."
 
-    return AgentResponse(
-        intent            = result.get("intent", "unclear"),
-        ui_action         = result.get("ui_action", "fallback"),
-        reply             = reply,
-        recommended_menus = result.get("recommended_menus") or [],
-        items_to_add      = result.get("items_to_add") or [],
-    )
+    return AgentResponse(**{
+        "class":    result.get("class", "FAQ"),
+        "response": response_text,
+        "action":   result.get("action", "none"),
+        "items":    result.get("items") or [],
+        "menus":    result.get("menus") or [],
+        "screen":   result.get("screen"),
+    })

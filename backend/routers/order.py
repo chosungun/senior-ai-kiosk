@@ -4,6 +4,7 @@ from typing import List
 from sqlalchemy.orm import Session
 from database import get_db
 from models.models import Order
+from routers.auth import verify_token
 
 router = APIRouter()
 
@@ -21,7 +22,7 @@ class OrderOut(BaseModel):
         from_attributes = True
 
 @router.get("/", response_model=List[OrderOut])
-def get_orders(db: Session = Depends(get_db)):
+def get_orders(db: Session = Depends(get_db), _=Depends(verify_token)):
     return db.query(Order).order_by(Order.created_at.desc()).all()
 
 @router.post("/", status_code=201, response_model=OrderOut)

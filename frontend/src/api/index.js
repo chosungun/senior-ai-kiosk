@@ -2,6 +2,27 @@ import axios from 'axios'
 
 const api = axios.create({ baseURL: '/api' })
 
+api.interceptors.request.use(config => {
+  const token = localStorage.getItem('admin_token')
+  if (token) config.headers.Authorization = `Bearer ${token}`
+  return config
+})
+
+api.interceptors.response.use(
+  res => res,
+  err => {
+    if (err.response?.status === 401 && window.location.pathname.startsWith('/admin')) {
+      localStorage.removeItem('admin_token')
+      window.location.href = '/admin/login'
+    }
+    return Promise.reject(err)
+  }
+)
+
+// ── 인증 ─────────────────────────────────────────────────────────
+export const adminLogin = (username, password) =>
+  api.post('/auth/login', { username, password })
+
 // ── 메뉴 ─────────────────────────────────────────────────────────
 export const getMenus      = (category) => api.get('/menus/', { params: { category } })
 export const createMenu    = (data)     => api.post('/menus/', data)

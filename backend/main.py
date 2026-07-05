@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import menu, faq, store, order, agent, voice
+from routers import menu, faq, store, order, agent, voice, auth
 from database import engine
 from models.models import Base, Menu, FAQ, StoreInfo
 from sqlalchemy.orm import Session
@@ -15,6 +15,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router,  prefix="/api/auth",   tags=["인증"])
 app.include_router(menu.router,  prefix="/api/menus",  tags=["메뉴"])
 app.include_router(faq.router,   prefix="/api/faqs",   tags=["FAQ"])
 app.include_router(store.router, prefix="/api/store",  tags=["매장정보"])

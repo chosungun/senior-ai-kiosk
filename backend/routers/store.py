@@ -4,6 +4,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 from database import get_db
 from models.models import StoreInfo
+from routers.auth import verify_token
 
 router = APIRouter()
 
@@ -34,7 +35,7 @@ def get_store(db: Session = Depends(get_db)):
     return db.query(StoreInfo).first()
 
 @router.patch("/", response_model=StoreOut)
-def update_store(body: StoreUpdate, db: Session = Depends(get_db)):
+def update_store(body: StoreUpdate, db: Session = Depends(get_db), _=Depends(verify_token)):
     store = db.query(StoreInfo).first()
     if not store:
         # 없으면 새로 생성
