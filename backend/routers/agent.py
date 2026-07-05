@@ -9,7 +9,7 @@ router = APIRouter()
 
 class AgentRequest(BaseModel):
     text:  str
-    state: dict  # { cart: [...], total: 0 }
+    state: dict  # { cart: [...], total: 0, mode: "faq" | "order" }
 
 class AgentResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
@@ -21,76 +21,94 @@ class AgentResponse(BaseModel):
     menus:    list = []
     screen:   str | None = None
 
-SYSTEM_PROMPT = """
-너는 카페 키오스크 음성 AI야. 손님 질문은 항상 아래 4가지 유형 중 하나로 분류돼:
+# ── FAQ 전용 트랙 ─────────────────────────────────────────────────────────
+SYSTEM_PROMPT_FAQ = """
+너는 카페 키오스크의 FAQ 전용 음성 도우미야. 화장실, 와이파이, 쿠폰, 알레르기, 할인, 영업시간 등
+매장 이용 관련 질문에 등록된 FAQ 데이터를 참고해서 답변해.
 
-1. FAQ - 매장 정보 질문 (화장실, 와이파이, 쿠폰, 알레르기, 할인 등) → 등록된 FAQ 데이터에서 답변
-2. ORDER - 주문/옵션 (메뉴, 수량, 추가/제외) → 확인 질문 후 장바구니 반영
-3. RECOMMEND - 메뉴 추천 (날씨/계절/인기 기반) → 1~3개 추천 + 짧은 이유
-4. UI_CONTROL - 화면 전환 (고대비, 화면확대, 결제화면 등) → 즉시 전환 후 완료 안내
+규칙:
+- 답변은 반드시 아래 JSON 형식으로만 출력해. JSON 외 다른 텍스트는 절대 포함하지 마.
+- 등록된 FAQ 데이터에 없는 내용은 지어내지 말고 모른다고 답해.
+- 손님이 주문이나 메뉴 추천을 요청하면, response에서 "그건 음성으로 주문하기 버튼을 이용해 주세요"처럼 안내해.
+
+출력 형식:
+{
+  "response": "손님에게 보여줄 답변 텍스트"
+}
+"""
+
+# ── 주문/추천 전용 트랙 ────────────────────────────────────────────────────
+SYSTEM_PROMPT_ORDER = """
+너는 카페 키오스크의 주문 전용 음성 AI야. 손님 발화는 항상 아래 2가지 유형 중 하나로 분류돼:
+
+1. ORDER - 주문/옵션 (메뉴, 수량, 추가/제외) → 확인 질문 후 장바구니 반영
+2. RECOMMEND - 메뉴 추천 (날씨/계절/인기 기반) → 1~3개 추천 + 짧은 이유
 
 규칙:
 - 답변은 반드시 아래 JSON 형식으로만 출력해. JSON 외 다른 텍스트는 절대 포함하지 마.
 - 메뉴/가격은 등록된 데이터만 사용, 임의로 지어내지 마.
 - 모호하면 짧게 되묻는 질문을 반환해.
+- 손님이 매장 정보(화장실, 와이파이 등)를 물어보면, class는 직전 맥락에 맞게 ORDER나 RECOMMEND로 유지하고 response에서 "그 부분은 도움이 필요하신가요 버튼에서 확인해 주세요"처럼 안내해.
 
 출력 형식:
 {
-  "class": "FAQ | ORDER | RECOMMEND | UI_CONTROL",
+  "class": "ORDER | RECOMMEND",
   "response": "손님에게 보여줄 답변 텍스트",
   "action": "실행할 동작 (아래 [class별 항목] 참고)",
   "items": [],
-  "menus": [],
-  "screen": null
+  "menus": []
 }
-- items/menus/screen은 해당 class에서 쓰는 필드만 채우고 나머지는 빈 배열([])이나 null로 둬.
+- items/menus는 해당 class에서 쓰는 필드만 채우고 나머지는 빈 배열([])로 둬.
 
 [class별 action/항목 형식]
-
-class=FAQ
-- action: "none"
 
 class=RECOMMEND
 - action: "show_recommendations"
 - menus: ["메뉴1", "메뉴2"]  (후보 2~3개)
 
 class=ORDER
-- 옵션(온도 등) 미선택 시 (예: "아메리카노 하나"):
+- 옵션(온도 등)이나 수량이 발화에 명시되지 않은 경우 (예: "아메리카노 주세요"):
   - action: "ask_options"
-  - items: [{"menu":"메뉴명","qty":1,"options":[{"name":"옵션명","value":"선택값"}]}]
-  - 미선택 옵션은 options 배열에서 생략. response로 "따뜻한 걸로 드릴까요, 시원한 걸로 드릴까요?"처럼 되물어.
-- 메뉴·옵션이 모두 확정된 경우 (예: "아이스 아메리카노 줘"):
+  - items: [{"menu":"메뉴명","qty":1,"options":[{"name":"옵션명","value":"선택값"}]}]  (qty는 발화에 수량이 없으면 1로 채우되, 미확정임을 response에서 함께 물어봄)
+  - 미선택 옵션·수량은 response로 한 번에 되물어. 예: "몇 잔 드릴까요? 따뜻하게 드릴까요, 시원하게 드릴까요?"
+- 메뉴·옵션·수량이 모두 확정된 경우 (예: "아이스 아메리카노 한 잔 줘"):
   - action: "confirm_add"
-  - items: [{"menu":"메뉴명","qty":1,"options":[{"name":"옵션명","value":"선택값(예: ICE, HOT, 제외, 추가)"}]}]
+  - items: [{"menu":"메뉴명","qty":발화에 명시된 수량,"options":[{"name":"옵션명","value":"선택값(예: ICE, HOT, 제외, 추가)"}]}]
   - response로 "장바구니에 담을까요?"라고 확인.
   - 부정 표현("아이스크림 넣지마","샷 빼")은 {"name":"아이스크림","value":"제외"} 형태로 반드시 명시.
 - 장바구니 규칙: state의 cart는 이미 담긴 것. items에는 이번 발화에서 새로 요청한 것만 담기. "~도","~추가" 표현은 기존 장바구니에 추가하는 것.
 
-class=UI_CONTROL
-- action: "switch_screen"
-- screen: "payment | home | call_staff | close_overlay"
-  - payment: "결제할게요" 등 → 결제 화면 이동
-  - home: "처음으로 돌아갈래" 등 → 홈 화면 이동
-  - call_staff: "직원 불러줘" 등 → 직원 호출
-  - close_overlay: "대화 그만할래", "닫아줘" 등 → 대화창 닫기
-  - response는 행동을 안내하는 한 문장으로.
-
 [한국어 주문 파싱 규칙]
-- "아이스 [메뉴]" → {"name":"온도","value":"ICE"}
-- "핫/따뜻한 [메뉴]" → {"name":"온도","value":"HOT"}
-- "크게/라지/큰 거" → {"name":"사이즈","value":"크게"}
-- "보통/기본/작게/중간" → {"name":"사이즈","value":"보통"}
+- 아래 예시는 대표 표현일 뿐이야. 문자 그대로 일치할 때만 적용하지 말고, 같은 의미의 다른 말투(구어체, 조사 변형, "~로요/~로 주세요/~로 할게요" 등)도 같은 값으로 해석해.
+- "아이스 [메뉴]", "아이스로요", "차갑게" → {"name":"온도","value":"ICE"}
+- "핫/따뜻한 [메뉴]", "뜨거운 걸로요" → {"name":"온도","value":"HOT"}
+- "크게/라지/큰 거", "큰 걸로 주세요" → {"name":"사이즈","value":"크게"}
+- "보통/기본/작게/중간", "기본으로 주세요"(사이즈를 묻는 맥락일 때) → {"name":"사이즈","value":"보통"}
 - 온도·사이즈 수식어는 옵션이지 별도 메뉴가 아님.
+- "한 잔/두 잔/세 잔" 또는 "한 개/두 개" 등 수사+단위 표현은 옵션이 아니라 수량 → items[].qty에 숫자로 반영("한/두/세/네/다섯" 등 순우리말 수사도 숫자로 변환).
+- 부정/거절 표현("넣지 마세요","빼주세요","안 넣어도 돼요")은 직전에 언급된 옵션(샷, 아이스크림 등)에 대해 {"value":"제외"}로 반영. 어떤 옵션을 가리키는지 발화나 대화 맥락(history)에서 찾아 특정하고, 특정할 수 없으면 response로 되물어.
+- "기본으로 주세요"처럼 추가 옵션(샷 등)을 묻는 맥락에서 나오면 "추가하지 않음"(옵션 생략 또는 {"value":"기본"})으로 해석.
 - 컨텍스트에 없는 메뉴명은 response에 안내하고 data.items에서 제외.
 """
 
-GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
+GROQ_MODEL_FAQ   = os.getenv("GROQ_MODEL_FAQ",   os.getenv("GROQ_MODEL", "openai/gpt-oss-20b"))
+GROQ_MODEL_ORDER = os.getenv("GROQ_MODEL_ORDER", os.getenv("GROQ_MODEL", "openai/gpt-oss-20b"))
 
 
-def build_context(db: Session) -> str:
-    menus = db.query(Menu).filter(Menu.is_active == True).all()
+def build_faq_context(db: Session) -> str:
     faqs  = db.query(FAQ).filter(FAQ.is_active == True).all()
     store = db.query(StoreInfo).first()
+
+    faq_list  = "\n".join([f"Q: {f.question}\nA: {f.answer}" for f in faqs])
+    store_txt = ""
+    if store:
+        store_txt = f"매장명: {store.name}, 영업시간: {store.open_time}~{store.close_time}, 공지: {store.notice or '없음'}"
+
+    return f"[FAQ]\n{faq_list}\n\n[매장정보]\n{store_txt}"
+
+
+def build_order_context(db: Session) -> str:
+    menus = db.query(Menu).filter(Menu.is_active == True).all()
 
     def _fmt_opts(opts):
         if not opts: return ''
@@ -101,15 +119,11 @@ def build_context(db: Session) -> str:
         f"- {m.name} ({m.price}원){' [품절]' if m.is_sold_out else ''}{_fmt_opts(m.options or [])}"
         for m in menus
     ])
-    faq_list  = "\n".join([f"Q: {f.question}\nA: {f.answer}" for f in faqs])
-    store_txt = ""
-    if store:
-        store_txt = f"매장명: {store.name}, 영업시간: {store.open_time}~{store.close_time}, 공지: {store.notice or '없음'}"
 
-    return f"[메뉴]\n{menu_list}\n\n[FAQ]\n{faq_list}\n\n[매장정보]\n{store_txt}"
+    return f"[메뉴]\n{menu_list}"
 
 
-async def _request_groq(client: httpx.AsyncClient, api_key: str, messages: list) -> dict:
+async def _request_groq(client: httpx.AsyncClient, api_key: str, model: str, messages: list) -> dict:
     res = await client.post(
         "https://api.groq.com/openai/v1/chat/completions",
         headers={
@@ -117,7 +131,7 @@ async def _request_groq(client: httpx.AsyncClient, api_key: str, messages: list)
             "Content-Type": "application/json",
         },
         json={
-            "model": GROQ_MODEL,
+            "model": model,
             "messages": messages,
             "max_tokens": 600,
             "temperature": 0.1,
@@ -148,7 +162,7 @@ async def _request_groq(client: httpx.AsyncClient, api_key: str, messages: list)
     raise json.JSONDecodeError("JSON을 찾을 수 없음", content, 0)
 
 
-async def call_groq(user_text: str, context: str, state: dict) -> dict:
+async def call_groq(model: str, system_prompt: str, user_text: str, context: str, state: dict) -> dict:
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
         raise ValueError("GROQ_API_KEY가 설정되지 않았습니다")
@@ -160,7 +174,7 @@ async def call_groq(user_text: str, context: str, state: dict) -> dict:
         f"[발화]{user_text}"
     )
     history = state.get('history', [])
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages = [{"role": "system", "content": system_prompt}]
     for h in history[-6:]:
         role = "user" if h.get("role") == "user" else "assistant"
         messages.append({"role": role, "content": h.get("content", "")})
@@ -170,7 +184,7 @@ async def call_groq(user_text: str, context: str, state: dict) -> dict:
     async with httpx.AsyncClient(timeout=25.0) as client:
         for attempt in range(5):
             try:
-                return await _request_groq(client, api_key, messages)
+                return await _request_groq(client, api_key, model, messages)
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 429 and attempt < 4:
                     wait = 2 ** (attempt + 1)
@@ -200,30 +214,54 @@ def _has_faq_match(user_text: str, faqs) -> bool:
     return False
 
 
-@router.post("/chat", response_model=AgentResponse)
-async def chat(req: AgentRequest, db: Session = Depends(get_db)):
+async def _chat_faq(req: AgentRequest, db: Session) -> AgentResponse:
     faqs    = db.query(FAQ).filter(FAQ.is_active == True).all()
-    context = build_context(db)
+    context = build_faq_context(db)
 
     try:
-        result = await call_groq(req.text, context, req.state)
+        result = await call_groq(GROQ_MODEL_FAQ, SYSTEM_PROMPT_FAQ, req.text, context, req.state)
     except Exception as e:
         print(f"[agent error] {type(e).__name__}: {e}")
         return AgentResponse(**{
             "class":    "FAQ",
             "response": "잘 듣지 못했어요. 다시 한 번 말씀해 주시겠어요?",
-            "action":   "none",
         })
 
     response_text = result.get("response", "잘 듣지 못했어요. 다시 한 번 말씀해 주시겠어요?")
-    if result.get("class") == "FAQ" and not _has_faq_match(req.text, faqs):
+    if not _has_faq_match(req.text, faqs):
         response_text = "해당 정보는 카운터에 문의해 주세요."
 
+    return AgentResponse(**{"class": "FAQ", "response": response_text})
+
+
+async def _chat_order(req: AgentRequest, db: Session) -> AgentResponse:
+    context = build_order_context(db)
+
+    try:
+        result = await call_groq(GROQ_MODEL_ORDER, SYSTEM_PROMPT_ORDER, req.text, context, req.state)
+    except Exception as e:
+        print(f"[agent error] {type(e).__name__}: {e}")
+        return AgentResponse(**{
+            "class":    "ORDER",
+            "response": "잘 듣지 못했어요. 다시 한 번 말씀해 주시겠어요?",
+        })
+
+    cls = result.get("class")
+    if cls not in ("ORDER", "RECOMMEND"):
+        cls = "ORDER"
+
     return AgentResponse(**{
-        "class":    result.get("class", "FAQ"),
-        "response": response_text,
+        "class":    cls,
+        "response": result.get("response", "잘 듣지 못했어요. 다시 한 번 말씀해 주시겠어요?"),
         "action":   result.get("action", "none"),
         "items":    result.get("items") or [],
         "menus":    result.get("menus") or [],
-        "screen":   result.get("screen"),
     })
+
+
+@router.post("/chat", response_model=AgentResponse)
+async def chat(req: AgentRequest, db: Session = Depends(get_db)):
+    mode = req.state.get('mode', 'faq')
+    if mode == 'order':
+        return await _chat_order(req, db)
+    return await _chat_faq(req, db)

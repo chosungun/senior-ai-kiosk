@@ -1,7 +1,7 @@
 import { useState, useRef, forwardRef, useImperativeHandle, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  X, Mic, MicOff, Keyboard, Volume2, VolumeX, Bot, Ear,
+  X, Mic, MicOff, Keyboard, Volume2, VolumeX, Bot,
   Check, Flame, Snowflake, Coffee,
 } from 'lucide-react'
 import { agentChat, sttAudio, ttsText } from '../api'
@@ -60,35 +60,51 @@ function resolveItems(rawItems, menus) {
   }).filter(Boolean)
 }
 
-// ── 음성 파동 애니메이션 ──────────────────────────────────────────────────
-function VoiceWave({ active, color, idleColor = 'rgba(0,0,0,0.10)' }) {
-  // 각 바마다 다른 높이·duration으로 불규칙한 유기적 움직임
-  const bars = [
-    { h: 20, dur: 0.65 }, { h: 42, dur: 0.91 }, { h: 64, dur: 0.54 },
-    { h: 80, dur: 1.08 }, { h: 92, dur: 0.70 }, { h: 100, dur: 0.59 },
-    { h: 92, dur: 0.83 }, { h: 80, dur: 0.47 }, { h: 64, dur: 0.96 },
-    { h: 42, dur: 0.62 }, { h: 20, dur: 0.78 },
-  ]
-  return (
-    <div style={{ display: 'flex', gap: 14, alignItems: 'center', height: 112 }}>
-      {bars.map((bar, i) => (
-        <div key={i} style={{
-          width: 12, borderRadius: 6,
-          background: active ? color : idleColor,
-          height: active ? bar.h : 8,
-          transition: 'height 0.4s ease, background 0.3s',
-          animation: active ? `voiceBar ${bar.dur}s ease-in-out infinite` : 'none',
-          animationDelay: `${i * 0.04}s`,
-          transformOrigin: 'center',
-        }} />
-      ))}
-    </div>
-  )
+// ── 말하는 영상 핑퐁 재생 (끝에서 되감아 처음으로, 순간 점프 없이 자연스럽게 루프) ──
+function PingPongVideo({ src, style }) {
+  const videoRef = useRef(null)
+
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v) return
+    let dir = 1
+    let lastTs = null
+    let raf = requestAnimationFrame(step)
+
+    function step(ts) {
+      if (dir === -1) {
+        if (lastTs == null) lastTs = ts
+        const dt = (ts - lastTs) / 1000
+        lastTs = ts
+        const next = v.currentTime - dt
+        if (next <= 0) {
+          v.currentTime = 0
+          dir = 1
+          lastTs = null
+          v.play().catch(() => {})
+        } else {
+          v.currentTime = next
+        }
+      }
+      raf = requestAnimationFrame(step)
+    }
+
+    const onEnded = () => { dir = -1; lastTs = null }
+    v.addEventListener('ended', onEnded)
+    v.play().catch(() => {})
+
+    return () => {
+      v.removeEventListener('ended', onEnded)
+      cancelAnimationFrame(raf)
+    }
+  }, [src])
+
+  return <video ref={videoRef} src={src} muted playsInline style={style} />
 }
 
 // ── 컴포넌트 ──────────────────────────────────────────────────────────
 const AIAssistantFAB = forwardRef(function AIAssistantFAB({
-  menus = [], onAddToCart, cart = [], cartTotal = 0, bottomOffset = 48,
+  menus = [], onAddToCart, cart = [], cartTotal = 0, bottomOffset = 48, showFab = true,
 }, ref) {
   const nav = useNavigate()
   const { highContrast, largeFont } = useA11y()
@@ -97,8 +113,10 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
   const C = getC(hc)
 
   const [open, setOpen]             = useState(false)
+  const [mode, setMode]             = useState('faq')
   const [messages, setMessages]     = useState([])
   const [voiceState, setVoiceState] = useState('idle')
+  const [isSpeaking, setIsSpeaking] = useState(false)
   const [liveWords, setLiveWords]   = useState([])
   const [ttsWords, setTtsWords]     = useState([])
   const [showKeyboard, setShowKeyboard] = useState(false)
@@ -122,19 +140,26 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
   const setOptCtx = ctx => { optCtxRef.current = ctx; setOptCtxState(ctx) }
   const nextId    = () => ++idRef.current
 
-  useImperativeHandle(ref, () => ({ open: () => setOpen(true) }), [])
+  useImperativeHandle(ref, () => ({ open: (m = 'faq') => { setMode(m); setOpen(true) } }), [])
 
   // 오버레이 열릴 때 초기화 + 인사
   useEffect(() => {
     if (open) {
       setPendingRecs([])
-      setMessages([])
       setOrderItems({})
       setConfirmed({})
       setOptCtx(null)
-      revealWords('안녕하세요! 어떤 메뉴를 주문하고 싶으신가요?')
+      const greeting = mode === 'order'
+        ? '안녕하세요! 어떤 메뉴를 주문하고 싶으신가요?'
+        : '안녕하세요! 매장 이용에 대해 궁금한 점을 물어보세요.'
+      if (mode === 'faq') {
+        setMessages([{ id: nextId(), role: 'ai', type: 'text', text: greeting }])
+      } else {
+        setMessages([])
+        revealWords(greeting)
+      }
     }
-  }, [open])
+  }, [open, mode])
 
   // ── 단어별 출력 ───────────────────────────────────────────────────
   const revealWords = text => {
@@ -162,8 +187,9 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
         const url = URL.createObjectURL(blob)
         const audio = new Audio(url)
         audioRef.current = audio
-        const done = () => { URL.revokeObjectURL(url); audioRef.current = null; resolve() }
+        const done = () => { URL.revokeObjectURL(url); audioRef.current = null; setIsSpeaking(false); resolve() }
         audio.onended = done; audio.onerror = done
+        setIsSpeaking(true)
         audio.play().catch(done)
       })
       .catch(resolve)
@@ -293,13 +319,15 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
         cart: cart.map(c => ({ menu: c.name, qty: c.qty })),
         total: cartTotal,
         history,
+        mode,
       })
-      const { class: cls, response: reply, action, items: rawItems = [], menus: recMenus = [], screen } = agent
+      const { class: cls, response: reply, action, items: rawItems = [], menus: recMenus = [] } = agent
 
       switch (cls) {
 
-        // ── FAQ: 말풍선만
+        // ── FAQ: 채팅 말풍선으로 표시
         case 'FAQ':
+          addAiMsg(reply)
           await speak(reply)
           break
 
@@ -327,32 +355,15 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
           break
         }
 
-        // ── 화면 전환 / 시스템 제어
-        case 'UI_CONTROL':
-          await speak(reply)
-          switch (screen) {
-            case 'payment':
-              setTimeout(() => { nav('/kiosk/payment', { state: { cart, total: cartTotal } }); setOpen(false) }, 900)
-              break
-            case 'home':
-              setTimeout(() => { nav('/kiosk'); setOpen(false) }, 900)
-              break
-            case 'close_overlay':
-              setTimeout(() => setOpen(false), 900)
-              break
-            case 'call_staff':
-            default:
-              break
-          }
-          break
-
         // ── fallback / unclear
         default:
           await speak(reply)
           break
       }
     } catch {
-      await speak('일시적인 오류가 발생했어요. 다시 시도해 주세요.')
+      const errMsg = '일시적인 오류가 발생했어요. 다시 시도해 주세요.'
+      if (mode === 'faq') addAiMsg(errMsg)
+      await speak(errMsg)
     }
     setVoiceState('idle')
   }
@@ -374,13 +385,22 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
   const activeOrderMsg = [...messages].reverse().find(m => m.type === 'order')
   const displayWords = voiceState === 'listening' ? liveWords : ttsWords
 
-  const overlayBg = hc ? 'rgba(0,0,0,0.93)' : 'rgba(255,255,255,0.90)'
+  // ── 진행 단계 (메뉴 선택 → 옵션 선택 → 결제) ──────────────────────
+  const activeItems = activeOrderMsg ? (orderItems[activeOrderMsg.id] || activeOrderMsg.items || []) : []
+  const activeItem = activeItems[0]
+  const hasUnresolvedOpts = !!activeItem && (activeItem.menuOptions || []).some(o => !activeItem.selectedOptions[o.name])
+  const hasConfirmedItem = Object.keys(confirmed).length > 0
+  const voiceStep = activeOrderMsg
+    ? (hasUnresolvedOpts ? 2 : 3)
+    : (hasConfirmedItem ? 3 : 1)
+
+  const overlayBg = hc ? 'rgba(0,0,0,0.93)' : '#FFFFFF'
   const textBoxBg = hc ? 'rgba(20,20,20,0.98)' : 'rgba(255,255,255,0.97)'
 
   return (
     <>
       {/* FAB 버튼 */}
-      {!open && (
+      {!open && showFab && (
         <div style={{
           position: 'absolute', bottom: bottomOffset, right: 48, zIndex: 20,
           display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 16,
@@ -394,7 +414,7 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
             도움이 필요하신가요?
           </div>
           <button
-            onClick={() => setOpen(true)}
+            onClick={() => { setMode('faq'); setOpen(true) }}
             style={{
               width: 120, height: 120, borderRadius: '50%',
               background: C.primary, border: 'none', cursor: 'pointer',
@@ -453,29 +473,39 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
             </button>
           </div>
 
+          {/* ── 진행 단계 인디케이터 (주문 모드에서만) ── */}
+          {mode === 'order' && <VoiceStepIndicator step={voiceStep} C={C} lf={lf} />}
+
           {/* ── 전체 콘텐츠: 귀·파동·상태·텍스트박스·주문카드·마이크·키보드 ── */}
           <div style={{
             flex: 1, width: '100%',
             display: 'flex', flexDirection: 'column',
             alignItems: 'center', justifyContent: 'space-evenly',
           }}>
-            {/* 귀 아이콘 */}
+            {/* 귀 아이콘 자리 → 캐릭터 영상으로 대체 (주문/FAQ 모드 공통) */}
             <div style={{
-              width: 390, height: 390, borderRadius: '50%',
+              width: mode === 'order' ? 560 : 600,
+              height: mode === 'order' ? 560 : 600,
+              borderRadius: 32,
               background: C.primaryBg,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              flexShrink: 0,
-              animation: voiceState === 'listening' ? `${hc ? 'earGlowHC' : 'earGlow'} 1.5s ease infinite` : 'none',
+              flexShrink: 0, overflow: 'hidden',
             }}>
-              <Ear size={210} color={C.primary} />
+              {isSpeaking ? (
+                <PingPongVideo
+                  key={`${mode}-speech`}
+                  src={mode === 'order' ? '/Order_speech.mp4' : '/FAQ_speech.mp4'}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
+              ) : (
+                <video
+                  key={`${mode}-idle`}
+                  src={mode === 'order' ? '/Order.mp4' : '/FAQ.mp4'}
+                  autoPlay loop muted playsInline
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
+              )}
             </div>
-
-            {/* 음성 파동 */}
-            <VoiceWave
-              active={voiceState === 'listening' || voiceState === 'processing'}
-              color={C.primary}
-              idleColor={hc ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.10)'}
-            />
 
             {/* 상태 텍스트 */}
             <div style={{ ...sc(BM.SM, lf), color: C.textSub, textAlign: 'center', flexShrink: 0 }}>
@@ -484,34 +514,38 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
               {voiceState === 'idle'       && '마이크 버튼을 눌러 말씀해 주세요'}
             </div>
 
-            {/* 텍스트 출력 박스 (어절별 출력) */}
-            <div style={{
-              width: '72%', flexShrink: 0,
-              background: textBoxBg,
-              borderRadius: 32,
-              border: `2px solid ${C.border}`,
-              padding: '40px 44px',
-              minHeight: 220,
-              boxShadow: hc ? 'none' : '0 6px 28px rgba(0,0,0,0.10)',
-              display: 'flex', flexWrap: 'wrap', gap: 12,
-              alignItems: 'flex-start', alignContent: 'flex-start',
-            }}>
-              {displayWords.length > 0
-                ? displayWords.map((w, i) => (
-                    <span
-                      key={i}
-                      style={{ ...sc(BM.SM, lf), color: C.text, animation: 'wordIn 0.22s ease forwards' }}
-                    >
-                      {w}
-                    </span>
-                  ))
-                : (
-                    <span style={{ ...sc(BM.SM, lf), color: C.textMuted, fontStyle: 'italic' }}>
-                      AI 도우미가 응답합니다...
-                    </span>
-                  )
-              }
-            </div>
+            {/* 텍스트 출력 박스 (주문 모드: 어절별 출력 / FAQ 모드: 최근 대화 2개 채팅) */}
+            {mode === 'faq' ? (
+              <FaqChatBubbles messages={messages} C={C} lf={lf} />
+            ) : (
+              <div style={{
+                width: '72%', flexShrink: 0,
+                background: textBoxBg,
+                borderRadius: 32,
+                border: `2px solid ${C.border}`,
+                padding: '40px 44px',
+                minHeight: 220,
+                boxShadow: hc ? 'none' : '0 6px 28px rgba(0,0,0,0.10)',
+                display: 'flex', flexWrap: 'wrap', gap: 12,
+                alignItems: 'flex-start', alignContent: 'flex-start',
+              }}>
+                {displayWords.length > 0
+                  ? displayWords.map((w, i) => (
+                      <span
+                        key={i}
+                        style={{ ...sc(BM.SM, lf), color: C.text, animation: 'wordIn 0.22s ease forwards' }}
+                      >
+                        {w}
+                      </span>
+                    ))
+                  : (
+                      <span style={{ ...sc(BM.SM, lf), color: C.textMuted, fontStyle: 'italic' }}>
+                        AI 도우미가 응답합니다...
+                      </span>
+                    )
+                }
+              </div>
+            )}
 
             {/* 추천 메뉴 버튼 */}
             {pendingRecs.length > 0 && (
@@ -576,7 +610,10 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
                     setOptCtx(null)
                     if (onAddToCart) {
                       onAddToCart(items)
-                      const names = items.map(i => `${i.name} ${i.qty}잔`).join(', ')
+                      const names = items.map(i => {
+                        const unit = (i.menuOptions || []).some(o => o.name === '온도') ? '잔' : '개'
+                        return `${i.name} ${i.qty}${unit}`
+                      }).join(', ')
                       speak(`${names} 장바구니에 담았어요!`)
                     } else {
                       nav('/kiosk/order', { state: { resolvedItems: items } })
@@ -673,9 +710,6 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
       <style>{`
         @keyframes wordIn     { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:none} }
         @keyframes micPulse   { 0%,100%{box-shadow:0 8px 32px rgba(220,38,38,0.5)} 50%{box-shadow:0 8px 56px rgba(220,38,38,0.75)} }
-        @keyframes earGlow    { 0%,100%{box-shadow:0 0 0 20px rgba(37,99,235,0.12),0 0 0 40px rgba(37,99,235,0.06)} 50%{box-shadow:0 0 0 30px rgba(37,99,235,0.18),0 0 0 60px rgba(37,99,235,0.09)} }
-        @keyframes earGlowHC  { 0%,100%{box-shadow:0 0 0 20px rgba(255,229,0,0.14),0 0 0 40px rgba(255,229,0,0.06)} 50%{box-shadow:0 0 0 30px rgba(255,229,0,0.22),0 0 0 60px rgba(255,229,0,0.10)} }
-        @keyframes voiceBar   { 0%,100%{transform:scaleY(0.14);opacity:0.55} 50%{transform:scaleY(1);opacity:1} }
         @keyframes listenRing { 0%,100%{opacity:0.5;transform:scale(1)} 50%{opacity:1;transform:scale(1.04)} }
       `}</style>
     </>
@@ -683,6 +717,81 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
 })
 
 export default AIAssistantFAB
+
+// ── 진행 단계 인디케이터 ────────────────────────────────────────────────
+const VOICE_STEPS = [
+  { n: 1, label: '메뉴 선택' },
+  { n: 2, label: '옵션 선택' },
+  { n: 3, label: '결제' },
+]
+
+function VoiceStepIndicator({ step, C, lf }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, padding: '28px 0 0' }}>
+      {VOICE_STEPS.map((s, i) => {
+        const done = s.n < step
+        const active = s.n === step
+        return (
+          <div key={s.n} style={{ display: 'flex', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
+              <div style={{
+                width: 68, height: 68, borderRadius: '50%', flexShrink: 0,
+                background: done ? C.primaryBg : active ? C.primary : 'transparent',
+                border: `3px solid ${done ? C.primaryBg : active ? C.primary : C.border}`,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                {done
+                  ? <Check size={34} color={C.primary} strokeWidth={3} />
+                  : <span style={{ fontSize: 30 * lf, fontWeight: 700, color: active ? C.primaryText : C.textMuted }}>{s.n}</span>
+                }
+              </div>
+              <span style={{
+                fontSize: 36 * lf, fontWeight: done || active ? 600 : 500,
+                color: done || active ? C.text : C.textMuted, whiteSpace: 'nowrap',
+              }}>{s.label}</span>
+            </div>
+            {i < VOICE_STEPS.length - 1 && (
+              <div style={{ width: 56, height: 3, background: C.border, margin: '0 22px' }} />
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── FAQ 채팅 말풍선 (최근 2개만) ────────────────────────────────────────
+function FaqChatBubbles({ messages, C, lf }) {
+  const recent = messages.filter(m => m.type === 'text').slice(-2)
+  return (
+    <div style={{ width: '86%', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {recent.map(m => (
+        <div key={m.id} style={{
+          display: 'flex', alignItems: 'flex-end', gap: 12,
+          justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start',
+        }}>
+          {m.role === 'ai' && (
+            <div style={{
+              width: 48, height: 48, borderRadius: '50%', flexShrink: 0,
+              background: C.primary, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <Bot size={26} color={C.primaryText} />
+            </div>
+          )}
+          <div style={{
+            maxWidth: '78%', padding: '20px 26px', borderRadius: 26,
+            ...sc(BM.SM, lf), lineHeight: 1.5,
+            ...(m.role === 'user'
+              ? { background: C.primary, color: C.primaryText }
+              : { background: C.card, color: C.text, border: `1.5px solid ${C.border}` }),
+          }}>
+            {m.text}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
 
 // ── OrderCard ─────────────────────────────────────────────────────────
 function OrderCard({

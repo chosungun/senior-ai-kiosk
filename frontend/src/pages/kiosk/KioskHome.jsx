@@ -1,36 +1,70 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import {
-  Accessibility, Smile, Headphones,
-  Loader2, Laugh, Frown,
-  BellRing, ChevronRight, Megaphone, Bot, Camera,
-} from 'lucide-react'
+import { Sprout, Speech, LayoutGrid, HelpCircle, ChevronRight } from 'lucide-react'
 import { useA11y } from '../../context/AccessibilityContext'
-import { getC } from '../../styles/colors'
-import { FF, H, B, BM, L, NAV, sc } from '../../styles/typography'
+import { FF } from '../../styles/typography'
 import { FALLBACK } from '../../constants/menus'
 import AIAssistantFAB from '../../components/AIAssistantFAB'
-import { ttsText, getStore, getMenus } from '../../api'
+import { ttsText, getMenus } from '../../api'
 
-const AI_STATES = [
-  { id: 'idle',       label: '대기중', Icon: Smile,      circleBg: { l: '#DBEAFE', hc: '#2A1E00' }, iconColor: { l: '#2563EB', hc: '#FFE500' } },
-  { id: 'listening',  label: '듣는중', Icon: Headphones, circleBg: { l: '#BFDBFE', hc: '#2A1E00' }, iconColor: { l: '#2563EB', hc: '#FFE500' } },
-  { id: 'processing', label: '생각중', Icon: Loader2,    circleBg: { l: '#FEF3C7', hc: '#1A1200' }, iconColor: { l: '#D97706', hc: '#FFC107' } },
-  { id: 'complete',   label: '완료',   Icon: Laugh,      circleBg: { l: '#F0FDF4', hc: '#001A06' }, iconColor: { l: '#16A34A', hc: '#00E326' } },
-  { id: 'error',      label: '오류',   Icon: Frown,      circleBg: { l: '#FEF2F2', hc: '#2D0000' }, iconColor: { l: '#DC2626', hc: '#FF6B6B' } },
-]
+const SCR_LIGHT = {
+  pageBg:        '#ffffff',
+  accent:        '#2563ff',
+  headText:      '#111827',
+  subText:       '#8b93a7',
+  chipBg:        '#f1f4fb',
+  chipBorder:    '#e5eaf5',
+  chipText:      '#374151',
+  cardShadow:    '0 4px 16px rgba(30,40,80,0.05)',
+  chevron:       '#c3cad8',
+  barBorder:     '#eef1f6',
+  charFilter:    'none',
+  homeBtnBg:     '#DEEAFB',
+  homeBtnBorder: '1px solid #cddef5',
+  homeBtnIconBg: '#ffffff',
+}
+
+const SCR_HC = {
+  pageBg:        '#000000',
+  accent:        '#ffe600',
+  headText:      '#ffffff',
+  subText:       '#e6e6e6',
+  chipBg:        '#000000',
+  chipBorder:    '#ffe600',
+  chipText:      '#ffe600',
+  cardShadow:    'none',
+  chevron:       '#ffe600',
+  barBorder:     '#ffe600',
+  charFilter:    'invert(1)',
+  homeBtnBg:     '#111111',
+  homeBtnBorder: '2px solid #ffe600',
+  homeBtnIconBg: '#1a1a1a',
+}
 
 export default function KioskHome() {
   const nav = useNavigate()
   const { highContrast, largeFont } = useA11y()
 
   const fabRef = useRef(null)
-  const [storeNotice, setStoreNotice] = useState('')
   const [menus, setMenus] = useState(FALLBACK)
+  const [now, setNow] = useState(new Date())
 
   useEffect(() => {
-    getStore().then(({ data }) => setStoreNotice(data.notice || '')).catch(() => {})
-    getMenus().then(({ data }) => { if (data?.length) setMenus(data) }).catch(() => {})
+    const timer = setInterval(() => setNow(new Date()), 30 * 1000)
+    return () => clearInterval(timer)
+  }, [])
+
+  useEffect(() => {
+    getMenus().then(({ data }) => {
+      if (!data?.length) return
+      const norm = s => (s || '').replace(/따뜻한\s*|아이스\s*/g, '').replace(/\s+/g, '').toLowerCase()
+      setMenus(FALLBACK.map(fb => {
+        const api = data.find(m =>
+          m.name === fb.name || m.id === fb.id || norm(m.name) === norm(fb.name)
+        )
+        return api ? { ...fb, price: api.price ?? fb.price, options: api.options ?? [] } : fb
+      }))
+    }).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -46,169 +80,103 @@ export default function KioskHome() {
 
   const hc = highContrast
   const lf = largeFont ? 1.2 : 1
-  const C = getC(hc)
+  const scr = hc ? SCR_HC : SCR_LIGHT
+
+  const homeOptions = [
+    { Icon: Speech,     title: '음성으로 주문하기',   desc: '말씀만 하시면 담아 드려요',        go: () => fabRef.current?.open('order') },
+    { Icon: LayoutGrid, title: '화면 눌러서 주문하기', desc: '메뉴를 보고 천천히 고르세요',       go: () => nav('/kiosk/order') },
+    { Icon: HelpCircle, title: '궁금한 점 물어보기',   desc: '메뉴·매장 안내를 도와드려요',       go: () => fabRef.current?.open('faq') },
+  ]
 
   return (
     <div style={{
-      height: '100%', display: 'flex', flexDirection: 'column',
-      background: C.bg, fontFamily: FF,
-      overflow: 'hidden',
+      height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden',
+      padding: '32px 40px 36px', position: 'relative',
+      background: scr.pageBg, fontFamily: FF,
     }}>
 
-      {/* ── Top header ──────────────────────────────────────────────── */}
+      {/* ── 상단 헤더: 카페명 + 실시간 시계 + 구분선 ─────────────────── */}
       <div style={{
-        flexShrink: 0,
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        padding: '28px 40px 20px',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        paddingBottom: 20, marginBottom: 28, borderBottom: `1px solid ${scr.barBorder}`,
       }}>
+        <span style={{
+          display: 'inline-flex', alignItems: 'center', gap: 12,
+          fontSize: 32 * lf, fontWeight: 900, color: scr.headText, letterSpacing: '-0.3px',
+        }}>
+          <Sprout size={36} color={scr.accent} strokeWidth={2} />
+          카페 아날로그
+        </span>
+        <span style={{ fontSize: 28 * lf, fontWeight: 700, color: scr.subText, fontVariantNumeric: 'tabular-nums' }}>
+          {now.toLocaleTimeString('ko-KR', { hour: 'numeric', minute: '2-digit', hour12: true })}
+        </span>
+      </div>
+
+      {/* ── 뱃지·타이틀·이미지·버튼 전체를 남는 공간에 균등 간격으로 배치 ── */}
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 28 }}>
+
+        {/* 뱃지 칩 */}
         <div style={{
-          display: 'flex', alignItems: 'center', gap: 12,
-          padding: '14px 28px', borderRadius: 28,
-          border: `1.5px solid ${C.border}`, background: C.card,
-          ...sc(NAV.SB, lf), color: C.text,
+          display: 'inline-flex', alignSelf: 'center', alignItems: 'center', gap: 8,
+          padding: '12px 22px', borderRadius: 999,
+          background: scr.chipBg, border: `1px solid ${scr.chipBorder}`,
         }}>
-          <Accessibility size={28} color={C.primary} />
-          배리어프리 디자인 시스템
+          <span style={{ fontSize: 24 * lf, fontWeight: 700, color: scr.chipText }}>
+            대화형 AI 키오스크 <strong style={{ fontSize: 28 * lf, fontWeight: 800 }}>골라봄</strong>
+          </span>
         </div>
-        <button onClick={() => fabRef.current?.open()} style={{
-          display: 'flex', alignItems: 'center', gap: 12,
-          padding: '14px 28px', borderRadius: 28,
-          border: `1.5px solid ${C.primaryBorder}`, background: C.primaryBg,
-          ...sc(NAV.SB, lf), color: C.primary, cursor: 'pointer',
-        }}>
-          <Bot size={28} color={C.primary} />
-          AI 도우미
-        </button>
-      </div>
 
-      {/* ── 스크롤 가능한 중간 영역 ─────────────────────────────────── */}
-      <div data-kiosk-scroll style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+        {/* 타이틀 + 부제 */}
+        <div>
+          <div style={{
+            textAlign: 'center',
+            fontSize: 76 * lf, fontWeight: 900, lineHeight: 1.18,
+            color: scr.headText, letterSpacing: '-0.5px',
+          }}>
+            무엇을<br />도와드릴까요?
+          </div>
+          <div style={{ marginTop: 14, textAlign: 'center', fontSize: 32 * lf, fontWeight: 500, color: scr.subText }}>
+            원하시는 주문 방법을 선택해주세요.
+          </div>
+        </div>
 
-      {/* ── Hero ────────────────────────────────────────────────────── */}
-      <div style={{ flexShrink: 0, textAlign: 'center', padding: '8px 48px 24px' }}>
-        <h1 style={{ ...sc(H.LG, lf), color: C.text, marginBottom: 16 }}>
-          누구나 쉽게 사용하는<br />
-          <span style={{ color: C.primary }}>AI 키오스크</span>
-        </h1>
-        <p style={{ ...sc(BM.SM, lf), color: C.textSub, maxWidth: 800, margin: '0 auto' }}>
-          어르신과 시각장애인을 위한 큰 글씨, 명확한 색상 대비,<br />친근한 AI 음성 안내를 제공합니다.
-        </p>
-      </div>
+        {/* 캐릭터 이미지 */}
+        <img
+          src="/title.png" alt="직원 캐릭터"
+          style={{ alignSelf: 'center', maxHeight: '82%', maxWidth: '62%', objectFit: 'contain', filter: scr.charFilter }}
+        />
 
-      {/* ── AI 도우미 소개 ───────────────────────────────────────────── */}
-      <div style={{ flexShrink: 0, padding: '0 36px 24px' }}>
-        <h2 style={{ ...sc(H.SM, lf), color: C.text, marginBottom: 16 }}>AI 도우미 소개</h2>
-        <div style={{ display: 'flex', gap: 14 }}>
-          {AI_STATES.map(s => {
-            const circleBg  = hc ? s.circleBg.hc  : s.circleBg.l
-            const iconColor = hc ? s.iconColor.hc : s.iconColor.l
-            return (
-              <div key={s.id} style={{
-                flex: 1, textAlign: 'center', background: C.card,
-                borderRadius: 20, padding: '18px 6px 14px',
-                border: `2px solid ${iconColor}`,
+        {/* 3개 주문 방법 버튼 */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 24, width: '100%', maxWidth: 760, alignSelf: 'center' }}>
+          {homeOptions.map(opt => (
+            <div
+              key={opt.title}
+              onClick={opt.go}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 24,
+                padding: '24px 32px', borderRadius: 26,
+                background: scr.homeBtnBg, border: scr.homeBtnBorder,
+                boxShadow: scr.cardShadow, cursor: 'pointer',
+              }}
+            >
+              <div style={{
+                width: 92, height: 92, borderRadius: '50%', flexShrink: 0,
+                background: scr.homeBtnIconBg, display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}>
-                <div style={{
-                  width: 64, height: 64, borderRadius: '50%',
-                  background: circleBg,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px',
-                }}>
-                  <s.Icon size={28} color={iconColor} />
-                </div>
-                <span style={{
-                  fontSize: BM.XS.fontSize * lf, fontWeight: 500,
-                  lineHeight: 1.4, color: iconColor,
-                }}>{s.label}</span>
+                <opt.Icon size={44} color={scr.accent} strokeWidth={2} />
               </div>
-            )
-          })}
-        </div>
-      </div>
-
-      {/* ── 오늘의 공지사항 ──────────────────────────────────────────── */}
-      {storeNotice && (
-        <div style={{ flexShrink: 0, padding: '0 36px 24px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
-            <div style={{
-              width: 52, height: 52, borderRadius: 14, background: C.primaryBg,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-              <Megaphone size={28} color={C.primary} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 36 * lf, fontWeight: 800, color: scr.headText }}>{opt.title}</div>
+                <div style={{ marginTop: 6, fontSize: 20 * lf, fontWeight: 500, color: scr.subText }}>{opt.desc}</div>
+              </div>
+              <ChevronRight size={30} color={scr.chevron} strokeWidth={2.4} />
             </div>
-            <h2 style={{ ...sc(H.SM, lf), color: C.text, margin: 0 }}>오늘의 공지사항</h2>
-          </div>
-
-          <div style={{
-            background: C.card, borderRadius: 22, padding: '20px 24px',
-            border: `1.5px solid ${C.border}`,
-            display: 'flex', alignItems: 'center', gap: 16,
-          }}>
-            <div style={{
-              width: 52, height: 52, borderRadius: 14, flexShrink: 0,
-              background: C.primaryBg, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-              <BellRing size={28} color={C.primary} />
-            </div>
-            <p style={{ ...sc(BM.XS, lf), color: C.text, margin: 0 }}>
-              {storeNotice}
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* ── 주문하기 버튼 ──────────────────────────────────────────── */}
-      <div style={{ padding: '0 36px 24px' }}>
-        <button onClick={() => nav('/kiosk/order')} style={{
-          width: '100%', padding: '32px', borderRadius: 22,
-          background: C.primary, color: C.primaryText,
-          border: 'none', ...sc(L.LG, lf),
-          cursor: 'pointer',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14,
-          boxShadow: hc ? 'none' : '0 8px 28px rgba(37,99,235,0.35)',
-        }}>
-          지금 주문하기 <ChevronRight size={52} strokeWidth={2.5} />
-        </button>
-      </div>
-
-      {/* ── CCTV 보안 안내 ───────────────────────────────────────────── */}
-      <div style={{ flexShrink: 0, padding: '0 36px 32px' }}>
-
-        <div style={{
-          background: C.card, borderRadius: 22,
-          border: `1.5px solid ${C.border}`,
-          overflow: 'hidden',
-          display: 'flex', alignItems: 'stretch',
-        }}>
-          {/* 왼쪽: 1:1 CCTV 이미지 영역 */}
-          <div style={{
-            width: 240, flexShrink: 0, alignSelf: 'stretch',
-            background: hc ? '#111' : '#F1F5F9',
-            display: 'flex', flexDirection: 'column',
-            alignItems: 'center', justifyContent: 'center', gap: 8,
-          }}>
-            <Camera size={40} color={hc ? '#555' : '#CBD5E1'} strokeWidth={1.5} />
-            <span style={{ ...sc(BM.XS, lf), color: hc ? '#555' : '#94A3B8' }}>CCTV</span>
-          </div>
-
-          {/* 오른쪽: 안내 문구 */}
-          <div style={{
-            flex: 1, padding: '24px 28px',
-            display: 'flex', flexDirection: 'column', justifyContent: 'center',
-            borderLeft: `1px solid ${C.border}`,
-          }}>
-            <p style={{ ...sc(BM.XS, lf), color: C.text, margin: 0, lineHeight: 1.7 }}>
-              정보의 도난 방지를 위해 24시간 CCTV 실시간 촬영 및 보안 시스템이 작동 중입니다.
-            </p>
-          </div>
+          ))}
         </div>
       </div>
-
-      </div>{/* 스크롤 영역 끝 */}
 
       {/* ── AI Assistant FAB ─────────────────────────────────────────── */}
-      <AIAssistantFAB ref={fabRef} menus={menus} bottomOffset={80} />
-
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <AIAssistantFAB ref={fabRef} menus={menus} bottomOffset={80} showFab={false} />
     </div>
   )
 }
