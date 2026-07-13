@@ -2,9 +2,11 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Sprout, Speech, LayoutGrid, HelpCircle, ChevronRight } from 'lucide-react'
 import { useA11y } from '../../context/AccessibilityContext'
-import { FF } from '../../styles/typography'
+import { getC } from '../../styles/colors'
+import { FF, B, sc } from '../../styles/typography'
 import { FALLBACK } from '../../constants/menus'
 import AIAssistantFAB from '../../components/AIAssistantFAB'
+import ScreenHeader from '../../components/ScreenHeader'
 import { ttsText, getMenus } from '../../api'
 
 const SCR_LIGHT = {
@@ -81,6 +83,7 @@ export default function KioskHome() {
   const hc = highContrast
   const lf = largeFont ? 1.2 : 1
   const scr = hc ? SCR_HC : SCR_LIGHT
+  const C = getC(hc)
 
   const homeOptions = [
     { Icon: Speech,     title: '음성으로 주문하기',   desc: '말씀만 하시면 담아 드려요',        go: () => fabRef.current?.open('order') },
@@ -91,29 +94,27 @@ export default function KioskHome() {
   return (
     <div style={{
       height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden',
-      padding: '32px 40px 36px', position: 'relative',
-      background: scr.pageBg, fontFamily: FF,
+      position: 'relative', background: scr.pageBg, fontFamily: FF,
     }}>
 
-      {/* ── 상단 헤더: 카페명 + 실시간 시계 + 구분선 ─────────────────── */}
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        paddingBottom: 20, marginBottom: 28, borderBottom: `1px solid ${scr.barBorder}`,
-      }}>
-        <span style={{
-          display: 'inline-flex', alignItems: 'center', gap: 12,
-          fontSize: 32 * lf, fontWeight: 900, color: scr.headText, letterSpacing: '-0.3px',
-        }}>
-          <Sprout size={36} color={scr.accent} strokeWidth={2} />
-          카페 아날로그
-        </span>
-        <span style={{ fontSize: 28 * lf, fontWeight: 700, color: scr.subText, fontVariantNumeric: 'tabular-nums' }}>
-          {now.toLocaleTimeString('ko-KR', { hour: 'numeric', minute: '2-digit', hour12: true })}
-        </span>
-      </div>
+      {/* ── 상단 헤더: 터치로 주문하기 화면과 동일한 헤더 디자인 ── */}
+      <ScreenHeader
+        C={C} lf={lf} align="left"
+        title={
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10, marginTop: 4 }}>
+            <Sprout size={44} color={C.primary} strokeWidth={2} />
+            카페 아날로그
+          </span>
+        }
+        right={
+          <span style={{ ...sc(B.SM, lf), color: C.textSub, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+            {now.toLocaleTimeString('ko-KR', { hour: 'numeric', minute: '2-digit', hour12: true })}
+          </span>
+        }
+      />
 
       {/* ── 뱃지·타이틀·이미지·버튼 전체를 남는 공간에 균등 간격으로 배치 ── */}
-      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 28 }}>
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 28, padding: '32px 40px 36px', overflow: 'hidden' }}>
 
         {/* 뱃지 칩 */}
         <div style={{
@@ -167,7 +168,7 @@ export default function KioskHome() {
               </div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 36 * lf, fontWeight: 800, color: scr.headText }}>{opt.title}</div>
-                <div style={{ marginTop: 6, fontSize: 20 * lf, fontWeight: 500, color: scr.subText }}>{opt.desc}</div>
+                <div style={{ marginTop: 6, fontSize: 26 * lf, fontWeight: 500, color: scr.subText }}>{opt.desc}</div>
               </div>
               <ChevronRight size={30} color={scr.chevron} strokeWidth={2.4} />
             </div>

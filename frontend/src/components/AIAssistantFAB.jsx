@@ -1,13 +1,15 @@
 import { useState, useRef, forwardRef, useImperativeHandle, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  X, Mic, MicOff, Keyboard, Volume2, VolumeX, Bot,
-  Check, Flame, Snowflake, Coffee,
+  Mic, MicOff, Keyboard, Volume2, VolumeX, Bot, ArrowLeft, Home,
+  Check, Flame, Snowflake, Coffee, ShoppingCart,
 } from 'lucide-react'
 import { agentChat, sttAudio, ttsText } from '../api'
 import { useA11y } from '../context/AccessibilityContext'
 import { getC } from '../styles/colors'
 import { FF, B, BM, L, NAV, sc } from '../styles/typography'
+import ScreenHeader, { HeaderIconButton } from './ScreenHeader'
+import StepIndicator from './StepIndicator'
 
 const fmt = n => n.toLocaleString() + '원'
 
@@ -24,6 +26,16 @@ function matchOption(text, choices) {
 function getDisplay(label) {
   return label === 'HOT' ? '따뜻하게' : label === 'ICE' ? '시원하게' : label
 }
+
+function findMenu(name, menus) {
+  return menus.find(m => m.name === name || m.name.includes(name) || name.includes(m.name))
+}
+
+const FAQ_SUGGESTIONS = [
+  '화장실 어디에요?',
+  '와이파이 비밀번호 뭐예요?',
+  '텀블러 가져오면 할인 돼요?',
+]
 
 function resolveItems(rawItems, menus) {
   const norm = s => (s || '').replace(/따뜻한\s*|아이스\s*/g, '').replace(/\s+/g, '').toLowerCase()
@@ -126,6 +138,8 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
   const [optCtx, setOptCtxState]    = useState(null)
   const [confirmed, setConfirmed]   = useState({})
   const [pendingRecs, setPendingRecs] = useState([])
+  const [voiceCart, setVoiceCart]   = useState([])
+  const [showCartDetail, setShowCartDetail] = useState(false)
 
   const recRef        = useRef(null)
   const mrRef         = useRef(null)
@@ -135,6 +149,7 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
   const idRef         = useRef(2)
   const audioRef      = useRef(null)
   const optCtxRef     = useRef(null)
+  const askContinueRef = useRef(false)
   const revealTimerRef = useRef(null)
 
   const setOptCtx = ctx => { optCtxRef.current = ctx; setOptCtxState(ctx) }
@@ -149,15 +164,14 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
       setOrderItems({})
       setConfirmed({})
       setOptCtx(null)
+      setVoiceCart([])
+      setShowCartDetail(false)
+      askContinueRef.current = false
       const greeting = mode === 'order'
         ? '안녕하세요! 어떤 메뉴를 주문하고 싶으신가요?'
         : '안녕하세요! 매장 이용에 대해 궁금한 점을 물어보세요.'
-      if (mode === 'faq') {
-        setMessages([{ id: nextId(), role: 'ai', type: 'text', text: greeting }])
-      } else {
-        setMessages([])
-        revealWords(greeting)
-      }
+      setMessages([{ id: nextId(), role: 'ai', type: 'text', text: greeting }])
+      revealWords(greeting)
     }
   }, [open, mode])
 
@@ -258,9 +272,26 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
   const processInput = async text => {
     if (!text?.trim()) { setVoiceState('idle'); return }
     setLiveWords([])
+    if (askContinueRef.current) {
+      setVoiceState('processing'); await handleContinueDecision(text); setVoiceState('idle'); return
+    }
     const ctx = optCtxRef.current
     if (ctx) { setVoiceState('processing'); await handleOptionVoice(text, ctx); setVoiceState('idle'); return }
     await processChat(text)
+  }
+
+  // ── 담은 뒤 "계속 주문" vs "결제" 의사 확인 ─────────────────────
+  const handleContinueDecision = async text => {
+    askContinueRef.current = false
+    const wantsPayment = /결제|계산|페이|그만|끝낼래|다\s*됐/.test(text)
+    if (wantsPayment) {
+      const total = voiceCart.reduce((s, i) => s + i.price * i.qty, 0)
+      await speak('결제 화면으로 이동할게요.')
+      nav('/kiosk/payment', { state: { cart: voiceCart, total } })
+    } else {
+      // 결제 의사가 아니면 계속 주문하려는 것으로 보고 바로 이어서 처리
+      await processChat(text)
+    }
   }
 
   // ── 옵션 음성 처리 ─────────────────────────────────────────────
@@ -383,7 +414,10 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
 
   // 현재 미확인 주문 (마지막 order 메시지)
   const activeOrderMsg = [...messages].reverse().find(m => m.type === 'order')
-  const displayWords = voiceState === 'listening' ? liveWords : ttsWords
+  const lastUserMsg = [...messages].reverse().find(m => m.role === 'user' && m.type === 'text')
+  const userWords = voiceState === 'listening'
+    ? liveWords
+    : (lastUserMsg ? lastUserMsg.text.trim().split(/\s+/).filter(Boolean) : [])
 
   // ── 진행 단계 (메뉴 선택 → 옵션 선택 → 결제) ──────────────────────
   const activeItems = activeOrderMsg ? (orderItems[activeOrderMsg.id] || activeOrderMsg.items || []) : []
@@ -396,6 +430,15 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
 
   const overlayBg = hc ? 'rgba(0,0,0,0.93)' : '#FFFFFF'
   const textBoxBg = hc ? 'rgba(20,20,20,0.98)' : 'rgba(255,255,255,0.97)'
+
+  // ── 음성 주문 장바구니 (항상 확인 가능) ───────────────────────────
+  const cartItems = onAddToCart ? cart : voiceCart
+  const cartTotalDisplay = onAddToCart ? cartTotal : voiceCart.reduce((s, i) => s + i.price * i.qty, 0)
+  const cartQtyCount = cartItems.reduce((s, it) => s + it.qty, 0)
+  const goToPayment = () => {
+    setShowCartDetail(false)
+    nav('/kiosk/payment', { state: { cart: cartItems, total: cartTotalDisplay } })
+  }
 
   return (
     <>
@@ -436,45 +479,36 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
           backdropFilter: 'blur(18px)',
           WebkitBackdropFilter: 'blur(18px)',
           display: 'flex', flexDirection: 'column',
-          alignItems: 'center',
-          padding: '36px 48px',
           fontFamily: FF,
         }}>
 
-          {/* ── 상단 컨트롤 바 ── */}
+          {/* ── 상단 헤더 (터치로 주문하기 화면과 동일한 헤더 디자인) ── */}
+          <ScreenHeader
+            C={C} lf={lf}
+            left={
+              <HeaderIconButton
+                icon={Home}
+                onClick={() => { setOpen(false); nav('/kiosk') }} ariaLabel="처음으로" C={C}
+              />
+            }
+            right={
+              mode === 'order' && (
+                <HeaderIconButton
+                  icon={ShoppingCart} badge={cartQtyCount}
+                  onClick={() => setShowCartDetail(true)} ariaLabel="장바구니" C={C}
+                />
+              )
+            }
+          />
+
           <div style={{
-            width: '100%', display: 'flex',
-            justifyContent: 'space-between', alignItems: 'center',
-            flexShrink: 0, marginBottom: 0,
+            flex: 1, minHeight: 0, width: '100%',
+            display: 'flex', flexDirection: 'column', alignItems: 'center',
+            padding: '36px 48px', overflow: 'hidden',
           }}>
-            <button
-              onClick={() => setTtsOn(v => !v)}
-              style={{
-                width: 88, height: 88, borderRadius: '50%',
-                border: `2px solid ${ttsOn ? C.primary : C.border}`,
-                background: ttsOn ? C.primaryBg : C.bg,
-                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}
-            >
-              {ttsOn
-                ? <Volume2 size={44} color={C.primary} />
-                : <VolumeX size={44} color={C.textMuted} />
-              }
-            </button>
-            <button
-              onClick={() => setOpen(false)}
-              style={{
-                width: 88, height: 88, borderRadius: '50%',
-                border: `2px solid ${C.border}`, background: C.bg,
-                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}
-            >
-              <X size={44} color={C.textSub} />
-            </button>
-          </div>
 
           {/* ── 진행 단계 인디케이터 (주문 모드에서만) ── */}
-          {mode === 'order' && <VoiceStepIndicator step={voiceStep} C={C} lf={lf} />}
+          {mode === 'order' && <StepIndicator steps={VOICE_STEPS} current={voiceStep} C={C} lf={lf} />}
 
           {/* ── 전체 콘텐츠: 귀·파동·상태·텍스트박스·주문카드·마이크·키보드 ── */}
           <div style={{
@@ -482,98 +516,130 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
             display: 'flex', flexDirection: 'column',
             alignItems: 'center', justifyContent: 'space-evenly',
           }}>
-            {/* 귀 아이콘 자리 → 캐릭터 영상으로 대체 (주문/FAQ 모드 공통) */}
+            {/* 캐릭터 영상(오른쪽) + AI 말풍선(왼쪽, 아바타가 하는 말) */}
             <div style={{
-              width: mode === 'order' ? 560 : 600,
-              height: mode === 'order' ? 560 : 600,
-              borderRadius: 32,
-              background: C.primaryBg,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              flexShrink: 0, overflow: 'hidden',
+              width: '100%', flexShrink: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0,
             }}>
-              {isSpeaking ? (
-                <PingPongVideo
-                  key={`${mode}-speech`}
-                  src={mode === 'order' ? '/Order_speech.mp4' : '/FAQ_speech.mp4'}
-                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                />
-              ) : (
-                <video
-                  key={`${mode}-idle`}
-                  src={mode === 'order' ? '/Order.mp4' : '/FAQ.mp4'}
-                  autoPlay loop muted playsInline
-                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                />
-              )}
-            </div>
-
-            {/* 상태 텍스트 */}
-            <div style={{ ...sc(BM.SM, lf), color: C.textSub, textAlign: 'center', flexShrink: 0 }}>
-              {voiceState === 'listening'  && '듣고 있어요... (말이 끝나면 자동으로 전송돼요)'}
-              {voiceState === 'processing' && '생각 중이에요...'}
-              {voiceState === 'idle'       && '마이크 버튼을 눌러 말씀해 주세요'}
-            </div>
-
-            {/* 텍스트 출력 박스 (주문 모드: 어절별 출력 / FAQ 모드: 최근 대화 2개 채팅) */}
-            {mode === 'faq' ? (
-              <FaqChatBubbles messages={messages} C={C} lf={lf} />
-            ) : (
               <div style={{
-                width: '72%', flexShrink: 0,
-                background: textBoxBg,
-                borderRadius: 32,
-                border: `2px solid ${C.border}`,
-                padding: '40px 44px',
-                minHeight: 220,
-                boxShadow: hc ? 'none' : '0 6px 28px rgba(0,0,0,0.10)',
-                display: 'flex', flexWrap: 'wrap', gap: 12,
-                alignItems: 'flex-start', alignContent: 'flex-start',
+                position: 'relative', flex: 1, maxWidth: '46%',
+                background: textBoxBg, borderRadius: '28px 28px 0 28px',
+                border: `2px solid ${C.borderMid}`,
+                padding: '28px 32px', minHeight: 120,
+                display: 'flex', flexWrap: 'wrap', gap: 10, alignContent: 'flex-start',
               }}>
-                {displayWords.length > 0
-                  ? displayWords.map((w, i) => (
-                      <span
-                        key={i}
-                        style={{ ...sc(BM.SM, lf), color: C.text, animation: 'wordIn 0.22s ease forwards' }}
-                      >
-                        {w}
-                      </span>
-                    ))
-                  : (
-                      <span style={{ ...sc(BM.SM, lf), color: C.textMuted, fontStyle: 'italic' }}>
-                        AI 도우미가 응답합니다...
-                      </span>
-                    )
-                }
+                {voiceState === 'listening' ? (
+                  <span style={{ ...sc(BM.SM, lf), color: C.textMuted, fontStyle: 'italic' }}>
+                    듣고 있어요... (말이 끝나면 자동으로 전송돼요)
+                  </span>
+                ) : ttsWords.length > 0 ? (
+                  ttsWords.map((w, i) => (
+                    <span
+                      key={i}
+                      style={{ ...sc(BM.SM, lf), color: C.text, animation: 'wordIn 0.22s ease forwards' }}
+                    >
+                      {w}
+                    </span>
+                  ))
+                ) : voiceState === 'processing' ? (
+                  <span style={{ ...sc(BM.SM, lf), color: C.textMuted, fontStyle: 'italic' }}>
+                    생각 중이에요...
+                  </span>
+                ) : (
+                  <span style={{ ...sc(BM.SM, lf), color: C.textMuted, fontStyle: 'italic' }}>
+                    AI 도우미가 응답합니다...
+                  </span>
+                )}
+              </div>
+
+              <div style={{
+                width: mode === 'order' ? 540 : 580,
+                height: mode === 'order' ? 540 : 580,
+                marginLeft: -40,
+                borderRadius: 40,
+                background: C.cardAlt,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                flexShrink: 0, overflow: 'hidden',
+              }}>
+                {isSpeaking ? (
+                  <PingPongVideo
+                    key={`${mode}-speech`}
+                    src={mode === 'order' ? '/Order_speech.mp4' : '/FAQ_speech.mp4'}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  />
+                ) : (
+                  <video
+                    key={`${mode}-idle`}
+                    src={mode === 'order' ? '/Order.mp4' : '/FAQ.mp4'}
+                    autoPlay loop muted playsInline
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  />
+                )}
+              </div>
+            </div>
+
+            {/* 추천 메뉴 카드 (사진 크게 + 이름 작게, 3개) */}
+            {pendingRecs.length > 0 && (
+              <div style={{
+                width: '100%', flexShrink: 0,
+                display: 'flex', gap: 20, justifyContent: 'center',
+              }}>
+                {pendingRecs.map(name => {
+                  const found = findMenu(name, menus)
+                  return (
+                    <button
+                      key={name}
+                      onClick={() => { setPendingRecs([]); processInput(name) }}
+                      style={{
+                        width: 280, flexShrink: 0,
+                        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
+                        padding: 14, borderRadius: 24, cursor: 'pointer',
+                        background: C.card, border: `2px solid ${C.borderMid}`,
+                      }}
+                    >
+                      <div style={{
+                        width: '100%', aspectRatio: '1 / 1', borderRadius: 18, overflow: 'hidden',
+                        background: C.cardAlt, flexShrink: 0,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        {found?.img
+                          ? <img src={found.img} alt={name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                          : <Coffee size={72} color={C.textMuted} />
+                        }
+                      </div>
+                      <span style={{ fontSize: 40 * lf, fontWeight: 600, color: C.text, textAlign: 'center' }}>{name}</span>
+                    </button>
+                  )
+                })}
               </div>
             )}
 
-            {/* 추천 메뉴 버튼 */}
-            {pendingRecs.length > 0 && (
+            {/* 자주 하는 질문 (FAQ 모드, 아직 질문 전) */}
+            {mode === 'faq' && !messages.some(m => m.role === 'user') && (
               <div style={{
                 width: '72%', flexShrink: 0,
                 display: 'flex', flexWrap: 'wrap', gap: 14, justifyContent: 'center',
               }}>
-                {pendingRecs.map(name => (
+                {FAQ_SUGGESTIONS.map(q => (
                   <button
-                    key={name}
-                    onClick={() => { setPendingRecs([]); processInput(name) }}
+                    key={q}
+                    onClick={() => processInput(q)}
                     style={{
-                      padding: '20px 36px', borderRadius: 24,
-                      background: C.primaryBg, border: `2px solid ${C.primaryBorder || C.primary}`,
+                      padding: '18px 28px', borderRadius: 22,
+                      background: C.primaryBg, border: `3px dashed ${C.primary}`,
                       color: C.primary, cursor: 'pointer',
                       ...sc(NAV.SB, lf), fontFamily: FF,
-                      boxShadow: '0 2px 12px rgba(37,99,235,0.10)',
                     }}
                   >
-                    {name}
+                    {q}
                   </button>
                 ))}
               </div>
             )}
 
-            {/* 대기 중인 주문 카드 */}
+            {/* 대기 중인 주문 카드 (옵션 선택 패널) — 사용자 발화 박스보다 위에 표시 */}
             {activeOrderMsg && !confirmed[activeOrderMsg.id] && (
-              <div style={{ width: '100%', flexShrink: 0 }}>
+              <div style={{ width: '72%', flexShrink: 0 }}>
                 <OrderCard
                   msg={activeOrderMsg}
                   localItems={orderItems[activeOrderMsg.id]}
@@ -616,7 +682,13 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
                       }).join(', ')
                       speak(`${names} 장바구니에 담았어요!`)
                     } else {
-                      nav('/kiosk/order', { state: { resolvedItems: items } })
+                      const names = items.map(i => {
+                        const unit = (i.menuOptions || []).some(o => o.name === '온도') ? '잔' : '개'
+                        return `${i.name} ${i.qty}${unit}`
+                      }).join(', ')
+                      setVoiceCart(prev => [...prev, ...items])
+                      askContinueRef.current = true
+                      speak(`${names} 담았어요! 계속 주문하시겠어요, 아니면 결제하시겠어요?`)
                     }
                   }}
                   onCancel={() => {
@@ -628,33 +700,87 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
               </div>
             )}
 
-            {/* 마이크 버튼 (탭하면 시작, 말이 끝나면 자동으로 인식 종료) */}
-            <button
-              onClick={() => {
-                if (voiceState === 'processing') return
-                if (voiceState === 'listening') stopVoice()
-                else startVoice()
-              }}
-              disabled={voiceState === 'processing'}
-              style={{
-                width: 168, height: 168, borderRadius: '50%', flexShrink: 0,
-                background: voiceState === 'listening' ? C.negative : C.primary,
-                border: 'none',
-                cursor: voiceState === 'processing' ? 'default' : 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                userSelect: 'none', touchAction: 'none',
-                boxShadow: voiceState === 'listening'
-                  ? '0 8px 40px rgba(220,38,38,0.5)'
-                  : hc ? '0 8px 40px rgba(255,229,0,0.45)' : '0 8px 40px rgba(37,99,235,0.45)',
-                animation: voiceState === 'listening' ? 'micPulse 1.4s ease infinite' : 'none',
-                opacity: voiceState === 'processing' ? 0.5 : 1,
-              }}
-            >
-              {voiceState === 'listening'
-                ? <MicOff size={68} color="#fff" />
-                : <Mic size={68} color={C.primaryText} />
+            {/* 사용자 발화 박스 (내가 하는 말) */}
+            <div style={{
+              width: '72%', flexShrink: 0,
+              background: textBoxBg,
+              borderRadius: 32,
+              border: `2px solid ${C.borderMid}`,
+              padding: '40px 44px',
+              minHeight: 220,
+              display: 'flex', flexWrap: 'wrap', gap: 12,
+              alignItems: 'flex-start', alignContent: 'flex-start',
+            }}>
+              {userWords.length > 0
+                ? userWords.map((w, i) => (
+                    <span
+                      key={i}
+                      style={{ ...sc(BM.SM, lf), color: C.text, animation: 'wordIn 0.22s ease forwards' }}
+                    >
+                      {w}
+                    </span>
+                  ))
+                : (
+                    <span style={{ ...sc(BM.SM, lf), color: C.textMuted, fontStyle: 'italic' }}>
+                      마이크 버튼을 눌러 말씀해 주세요...
+                    </span>
+                  )
               }
-            </button>
+            </div>
+
+            {/* 자판 토글 + 마이크 버튼 (탭하면 시작, 말이 끝나면 자동으로 인식 종료) + 음성 안내 토글 */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexShrink: 0 }}>
+              <button
+                onClick={() => setShowKeyboard(k => !k)}
+                aria-label="키보드로 입력하기"
+                style={{
+                  width: 60, height: 60, borderRadius: '50%', flexShrink: 0,
+                  border: `2px solid ${showKeyboard ? C.primary : C.border}`,
+                  background: showKeyboard ? C.primaryBg : C.bg,
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}
+              >
+                <Keyboard size={28} color={showKeyboard ? C.primary : C.textMuted} />
+              </button>
+              <button
+                onClick={() => {
+                  if (voiceState === 'processing') return
+                  if (voiceState === 'listening') stopVoice()
+                  else startVoice()
+                }}
+                disabled={voiceState === 'processing'}
+                style={{
+                  width: 168, height: 168, borderRadius: '50%', flexShrink: 0,
+                  background: voiceState === 'listening' ? C.negative : C.primary,
+                  border: 'none',
+                  cursor: voiceState === 'processing' ? 'default' : 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  userSelect: 'none', touchAction: 'none',
+                  animation: voiceState === 'listening' ? 'micPulse 1.4s ease infinite' : 'none',
+                  opacity: voiceState === 'processing' ? 0.5 : 1,
+                }}
+              >
+                {voiceState === 'listening'
+                  ? <MicOff size={68} color="#fff" />
+                  : <Mic size={68} color={C.primaryText} />
+                }
+              </button>
+              <button
+                onClick={() => setTtsOn(v => !v)}
+                aria-label="음성 안내 켜기/끄기"
+                style={{
+                  width: 60, height: 60, borderRadius: '50%', flexShrink: 0,
+                  border: `2px solid ${ttsOn ? C.primary : C.border}`,
+                  background: ttsOn ? C.primaryBg : C.bg,
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}
+              >
+                {ttsOn
+                  ? <Volume2 size={28} color={C.primary} />
+                  : <VolumeX size={28} color={C.textMuted} />
+                }
+              </button>
+            </div>
 
             {/* 키보드 입력 영역 */}
             {showKeyboard && (
@@ -679,32 +805,19 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
                 }}>전송</button>
               </div>
             )}
-
-            {/* 키보드 토글 링크 */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexShrink: 0 }}>
-              <button
-                onClick={() => setShowKeyboard(k => !k)}
-                style={{
-                  width: 72, height: 72, borderRadius: '50%',
-                  border: `2px solid ${showKeyboard ? C.primary : C.border}`,
-                  background: showKeyboard ? C.primaryBg : 'transparent',
-                  cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}
-              >
-                <Keyboard size={36} color={showKeyboard ? C.primary : C.textSub} />
-              </button>
-              <button
-                onClick={() => setShowKeyboard(true)}
-                style={{
-                  background: 'none', border: 'none', cursor: 'pointer',
-                  ...sc(BM.SM, lf), color: C.primary, textDecoration: 'underline', fontFamily: FF,
-                }}
-              >
-                음성 명령이 어려우신가요?
-              </button>
-            </div>
+          </div>
           </div>
         </div>
+      )}
+
+      {/* ── 장바구니 상세 화면 ── */}
+      {open && showCartDetail && (
+        <CartDetailOverlay
+          items={cartItems} total={cartTotalDisplay}
+          C={C} lf={lf} hc={hc}
+          onClose={() => setShowCartDetail(false)}
+          onPay={cartItems.length > 0 ? goToPayment : null}
+        />
       )}
 
       <style>{`
@@ -725,70 +838,90 @@ const VOICE_STEPS = [
   { n: 3, label: '결제' },
 ]
 
-function VoiceStepIndicator({ step, C, lf }) {
+// ── 장바구니 상세 화면 ──────────────────────────────────────────────────
+function CartDetailOverlay({ items, total, C, lf, hc, onClose, onPay }) {
+  const unit = it => (it.menuOptions || []).some(o => o.name === '온도') ? '잔' : '개'
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, padding: '28px 0 0' }}>
-      {VOICE_STEPS.map((s, i) => {
-        const done = s.n < step
-        const active = s.n === step
-        return (
-          <div key={s.n} style={{ display: 'flex', alignItems: 'center' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
-              <div style={{
-                width: 68, height: 68, borderRadius: '50%', flexShrink: 0,
-                background: done ? C.primaryBg : active ? C.primary : 'transparent',
-                border: `3px solid ${done ? C.primaryBg : active ? C.primary : C.border}`,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                {done
-                  ? <Check size={34} color={C.primary} strokeWidth={3} />
-                  : <span style={{ fontSize: 30 * lf, fontWeight: 700, color: active ? C.primaryText : C.textMuted }}>{s.n}</span>
-                }
-              </div>
-              <span style={{
-                fontSize: 36 * lf, fontWeight: done || active ? 600 : 500,
-                color: done || active ? C.text : C.textMuted, whiteSpace: 'nowrap',
-              }}>{s.label}</span>
-            </div>
-            {i < VOICE_STEPS.length - 1 && (
-              <div style={{ width: 56, height: 3, background: C.border, margin: '0 22px' }} />
-            )}
-          </div>
-        )
-      })}
-    </div>
-  )
-}
+    <div style={{
+      position: 'absolute', inset: 0, zIndex: 70,
+      background: hc ? '#000' : '#FFFFFF',
+      display: 'flex', flexDirection: 'column',
+      fontFamily: FF,
+    }}>
+      {/* 헤더 (터치로 주문하기 화면과 동일한 헤더 디자인) */}
+      <ScreenHeader
+        C={C} lf={lf} title="장바구니"
+        left={<HeaderIconButton icon={ArrowLeft} onClick={onClose} ariaLabel="뒤로가기" C={C} />}
+      />
 
-// ── FAQ 채팅 말풍선 (최근 2개만) ────────────────────────────────────────
-function FaqChatBubbles({ messages, C, lf }) {
-  const recent = messages.filter(m => m.type === 'text').slice(-2)
-  return (
-    <div style={{ width: '86%', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {recent.map(m => (
-        <div key={m.id} style={{
-          display: 'flex', alignItems: 'flex-end', gap: 12,
-          justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start',
-        }}>
-          {m.role === 'ai' && (
-            <div style={{
-              width: 48, height: 48, borderRadius: '50%', flexShrink: 0,
-              background: C.primary, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-              <Bot size={26} color={C.primaryText} />
-            </div>
-          )}
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', padding: '36px 48px', overflow: 'hidden' }}>
+
+      {/* 아이템 목록 */}
+      <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
+        {items.length === 0 ? (
           <div style={{
-            maxWidth: '78%', padding: '20px 26px', borderRadius: 26,
-            ...sc(BM.SM, lf), lineHeight: 1.5,
-            ...(m.role === 'user'
-              ? { background: C.primary, color: C.primaryText }
-              : { background: C.card, color: C.text, border: `1.5px solid ${C.border}` }),
+            flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            ...sc(BM.SM, lf), color: C.textMuted,
           }}>
-            {m.text}
+            장바구니가 비어있어요
           </div>
+        ) : items.map((it, i) => (
+          <div key={it.id || i} style={{
+            display: 'flex', gap: 24, padding: '20px 24px',
+            background: hc ? 'rgba(20,20,20,0.98)' : C.card,
+            border: `2px solid ${C.border}`, borderRadius: 24,
+          }}>
+            <div style={{
+              width: 96, height: 96, borderRadius: 18, overflow: 'hidden',
+              background: C.cardAlt, flexShrink: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              {it.img
+                ? <img src={it.img} alt={it.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                : <Coffee size={44} color={C.textMuted} />
+              }
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ ...sc(B.SM, lf), color: C.text, marginBottom: 8 }}>{it.name}</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                {Object.entries(it.selectedOptions || {}).map(([k, v]) => (
+                  <span key={k} style={{ ...sc(BM.SM, lf), color: C.textSub }}>
+                    {k === '온도' ? getDisplay(v.label) : v.label}
+                  </span>
+                ))}
+              </div>
+              <div style={{ ...sc(L.XS, lf), color: C.primary }}>
+                {fmt(it.price)} × {it.qty}{unit(it)}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* 합계 + 결제 */}
+      {items.length > 0 && (
+        <div style={{ flexShrink: 0, paddingTop: 24, borderTop: `2px solid ${C.border}` }}>
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20,
+          }}>
+            <span style={{ ...sc(BM.SM, lf), color: C.textSub }}>총 결제 금액</span>
+            <span style={{ ...sc(B.MD, lf), color: C.text, fontWeight: 700 }}>{fmt(total)}</span>
+          </div>
+          {onPay && (
+            <button
+              onClick={onPay}
+              style={{
+                width: '100%', padding: '24px', borderRadius: 24, border: 'none',
+                background: C.primary, color: C.primaryText,
+                cursor: 'pointer', ...sc(NAV.SB, lf), fontFamily: FF,
+              }}
+            >
+              결제하러 가기
+            </button>
+          )}
         </div>
-      ))}
+      )}
+      </div>
     </div>
   )
 }
@@ -809,7 +942,7 @@ function OrderCard({
   return (
     <div style={{
       background: hc ? '#141414' : '#FFFFFF',
-      border: `2px solid ${C.border}`,
+      border: `2px solid ${C.borderMid}`,
       borderRadius: 28, overflow: 'hidden',
     }}>
       {/* 아이템 정보 */}

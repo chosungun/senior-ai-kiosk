@@ -2,13 +2,14 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import {
   Home, X, ShoppingCart, Flame, Snowflake,
-  Plus, Minus, Trash2, Coffee, Milk, CupSoda, Cake, Check, ChevronRight,
+  Plus, Minus, Coffee, Milk, CupSoda, Cake, Check,
 } from 'lucide-react'
 import { getMenus } from '../../api'
 import { useA11y } from '../../context/AccessibilityContext'
 import { getC } from '../../styles/colors'
 import { FF, H, B, BM, L, NAV, sc } from '../../styles/typography'
 import { FALLBACK } from '../../constants/menus'
+import ScreenHeader, { HeaderIconButton } from '../../components/ScreenHeader'
 
 const TABS = ['커피', '논커피', '티/에이드', '디저트']
 const fmt = n => n.toLocaleString() + '원'
@@ -19,29 +20,6 @@ const CATEGORY_STYLE = {
   '논커피':    { icon: '#C98A4B' },
   '티/에이드': { icon: '#3FA88B' },
   '디저트':    { icon: '#D6789B' },
-}
-
-function mapPreItems(preItems, menus) {
-  const norm = s => (s || '').replace(/따뜻한\s*|아이스\s*/g, '').replace(/\s+/g, '').toLowerCase()
-  return preItems.map((pi, i) => {
-    const found = menus.find(m =>
-      m.name === pi.menu || m.name.includes(pi.menu || '') ||
-      (pi.menu || '').includes(m.name) || norm(m.name) === norm(pi.menu)
-    )
-    if (!found) return null
-    const tempOpt = pi.options?.find(o => o.name === '온도')
-    const hasTempOption = (found.options || []).some(o => o.name === '온도')
-    const tempLabel = tempOpt
-      ? (tempOpt.value === 'HOT' ? 'HOT' : 'ICE')
-      : (hasTempOption || found.hasTemp ? 'HOT' : null)
-    const temp = tempLabel === 'HOT' ? '따뜻하게' : tempLabel === 'ICE' ? '시원하게' : null
-    const selectedOptions = tempLabel ? { '온도': { label: tempLabel, price: 0 } } : {}
-    return {
-      id: `${found.id}-${Date.now()}-${i}`,
-      menuId: found.id, name: found.name, price: found.price,
-      qty: pi.qty || 1, temp, selectedOptions, img: found.img,
-    }
-  }).filter(Boolean)
 }
 
 export default function KioskOrder() {
@@ -55,7 +33,6 @@ export default function KioskOrder() {
   const [detail, setDetail]             = useState(null)
   const [detailOptions, setDetailOptions] = useState({})
   const [detailQty, setDetailQty]       = useState(1)
-  const [showCart, setShowCart]         = useState(false)
   const [agentBanner, setAgentBanner]   = useState(location.state?.agentReply || '')
 
   const hc = highContrast
@@ -83,18 +60,6 @@ export default function KioskOrder() {
       })
       .catch(() => {})
   }, [])
-
-  useEffect(() => {
-    // Items from voice order on KioskHome (already resolved)
-    const resolvedItems = location.state?.resolvedItems
-    if (resolvedItems?.length) { setCart(resolvedItems); return }
-
-    // Items from legacy preItems format
-    const preItems = location.state?.preItems || []
-    if (!preItems.length) return
-    const items = mapPreItems(preItems, menus)
-    if (items.length) setCart(items)
-  }, [menus])
 
   const cartTotal = cart.reduce((s, i) => s + i.price * i.qty, 0)
   const cartCount = cart.reduce((s, i) => s + i.qty, 0)
@@ -128,90 +93,6 @@ export default function KioskOrder() {
     setDetail(null)
   }
 
-  const changeQty = (id, delta) =>
-    setCart(prev => prev.map(c => c.id === id ? { ...c, qty: Math.max(1, c.qty + delta) } : c))
-  const removeItem = (id) => setCart(prev => prev.filter(c => c.id !== id))
-
-  // ── Cart screen ────────────────────────────────────────────────────
-  if (showCart) return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: T.bg, fontFamily: FF }}>
-      <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '24px 36px', background: T.card, borderBottom: `2px solid ${T.border}` }}>
-        <button onClick={() => setShowCart(false)} aria-label="뒤로" style={{ width: 72, height: 72, borderRadius: 20, background: T.card, border: `2px solid ${T.border}`, color: T.text, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
-          <ChevronRight size={44} color={T.text} strokeWidth={2} style={{ transform: 'rotate(180deg)' }} />
-        </button>
-        <span style={{ ...sc(B.SM, lf), color: T.text, letterSpacing: '-0.3px' }}>장바구니 확인</span>
-        <div style={{ width: 72 }} />
-      </div>
-
-      <div data-kiosk-scroll style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
-        {cart.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '120px 40px', color: T.sub, ...BM.SM }}>
-            장바구니가 비어있어요
-          </div>
-        ) : cart.map(item => (
-          <div key={item.id} style={{ background: T.card, borderRadius: 24, border: `2px solid ${T.border}`, padding: '28px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 24 }}>
-            <div style={{ width: 160, height: 160, borderRadius: 24, overflow: 'hidden', background: T.cardAlt, flexShrink: 0 }}>
-              {item.img
-                ? <img src={item.img} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-                : <Coffee size={72} color={T.muted} />}
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ ...sc(B.SM, lf), color: T.text }}>{item.name}</div>
-              <div style={{ marginTop: 4 }}>
-                {item.selectedOptions
-                  ? Object.entries(item.selectedOptions).map(([optName, choice]) => (
-                      <div key={optName} style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
-                        {optName === '온도' && choice.label === 'HOT' && <Flame size={36} color="#dc2626" />}
-                        {optName === '온도' && choice.label === 'ICE' && <Snowflake size={36} color="#0ea5e9" />}
-                        <span style={{ ...BM.SM, color: T.sub }}>
-                          {choice.label === 'HOT' ? '따뜻하게' : choice.label === 'ICE' ? '시원하게' : choice.label}
-                          {choice.price > 0 && ` +${choice.price.toLocaleString()}원`}
-                        </span>
-                      </div>
-                    ))
-                  : item.temp && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        {item.temp === '따뜻하게' ? <Flame size={36} color="#dc2626" /> : <Snowflake size={36} color="#0ea5e9" />}
-                        <span style={{ ...BM.SM, color: T.sub }}>{item.temp}</span>
-                      </div>
-                    )
-                }
-              </div>
-              <div style={{ ...sc(B.SM, lf), color: T.text, marginTop: 8 }}>{fmt(item.price)}</div>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-              <button onClick={() => changeQty(item.id, -1)} style={{ width: 72, height: 72, borderRadius: '50%', background: T.bg, border: `2px solid ${T.border}`, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Minus size={32} color={T.text} />
-              </button>
-              <span style={{ ...sc(B.SM, lf), color: T.text, minWidth: 40, textAlign: 'center' }}>{item.qty}</span>
-              <button onClick={() => changeQty(item.id, 1)} style={{ width: 72, height: 72, borderRadius: '50%', background: T.primary, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Plus size={32} color={T.primaryText} />
-              </button>
-            </div>
-            <button onClick={() => removeItem(item.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '8px' }}>
-              <Trash2 size={32} color={T.muted} />
-            </button>
-          </div>
-        ))}
-      </div>
-
-      <div style={{ flexShrink: 0, padding: '28px 36px', background: T.card, borderTop: `2px solid ${T.border}` }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-          <span style={{ ...sc(B.SM, lf), color: T.sub }}>총 주문 금액</span>
-          <span style={{ ...sc(L.MD, lf), color: T.primary }}>{fmt(cartTotal)}</span>
-        </div>
-        <div style={{ display: 'flex', gap: 16 }}>
-          <button onClick={() => setShowCart(false)} style={{ flex: 1, padding: '28px', borderRadius: 20, background: T.bg, color: T.text, border: `2px solid ${T.border}`, ...sc(L.SM, lf), cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
-            <Plus size={32} /> 메뉴 추가
-          </button>
-          <button onClick={() => nav('/kiosk/payment', { state: { cart, total: cartTotal } })} disabled={!cart.length} style={{ flex: 2, padding: '28px', borderRadius: 20, background: cart.length ? T.primary : T.border, color: cart.length ? T.primaryText : T.muted, border: 'none', ...sc(L.SM, lf), cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
-            주문 확인 <ChevronRight size={32} />
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-
   // ── Main menu screen ───────────────────────────────────────────────
   return (
     <div style={{
@@ -219,13 +100,11 @@ export default function KioskOrder() {
       background: T.bg, fontFamily: FF, position: 'relative', overflow: 'hidden',
     }}>
       {/* Header */}
-      <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '24px 36px', background: T.card, borderBottom: `2px solid ${T.border}` }}>
-        <button onClick={() => nav('/kiosk')} aria-label="처음으로" style={{ width: 72, height: 72, borderRadius: 20, background: T.card, border: `2px solid ${T.border}`, color: T.text, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
-          <Home size={44} color={T.text} strokeWidth={2} />
-        </button>
-        <span style={{ ...sc(B.SM, lf), color: T.text, letterSpacing: '-0.3px' }}>메뉴 주문</span>
-        <div style={{ width: 72 }} />
-      </div>
+      <ScreenHeader
+        C={C} lf={lf}
+        left={<HeaderIconButton icon={Home} onClick={() => nav('/kiosk')} ariaLabel="처음으로" C={C} />}
+        title="메뉴 주문"
+      />
 
       {/* AI banner */}
       {agentBanner && (
@@ -265,7 +144,7 @@ export default function KioskOrder() {
       {/* Cart bar — only when items exist */}
       {cart.length > 0 && (
         <div style={{ flexShrink: 0, background: T.card, borderTop: `2px solid ${T.border}`, padding: '20px 36px', display: 'flex', alignItems: 'center', gap: 16 }}>
-          <button onClick={() => setShowCart(true)} style={{ display: 'flex', alignItems: 'center', gap: 16, background: 'none', border: 'none', cursor: 'pointer', flex: 1 }}>
+          <button onClick={() => nav('/kiosk/payment', { state: { cart, total: cartTotal } })} style={{ display: 'flex', alignItems: 'center', gap: 16, background: 'none', border: 'none', cursor: 'pointer', flex: 1 }}>
             <div style={{ position: 'relative' }}>
               <ShoppingCart size={58} color={T.text} />
               <span style={{ position: 'absolute', top: -10, right: -10, width: 34, height: 34, borderRadius: '50%', background: T.badgeRed, color: '#fff', fontSize: 20, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{cartCount}</span>
@@ -275,7 +154,7 @@ export default function KioskOrder() {
               <div style={{ ...sc(L.XS, lf), color: T.primary }}>{fmt(cartTotal)}</div>
             </div>
           </button>
-          <button onClick={() => setShowCart(true)} style={{ padding: '24px 44px', borderRadius: 18, background: T.primary, color: T.primaryText, border: 'none', ...sc(L.XS, lf), cursor: 'pointer' }}>
+          <button onClick={() => nav('/kiosk/payment', { state: { cart, total: cartTotal } })} style={{ padding: '24px 44px', borderRadius: 18, background: T.primary, color: T.primaryText, border: 'none', ...sc(L.XS, lf), cursor: 'pointer' }}>
             주문하기
           </button>
         </div>

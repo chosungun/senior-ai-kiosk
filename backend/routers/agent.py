@@ -65,12 +65,13 @@ SYSTEM_PROMPT_ORDER = """
 class=RECOMMEND
 - action: "show_recommendations"
 - menus: ["메뉴1", "메뉴2"]  (후보 2~3개)
+- response는 짧게 한 문장으로만: "이런 메뉴는 어떠세요?" 정도. 후보들은 화면에 사진과 이름으로 카드로 표시되니 response에서 메뉴 설명이나 특징을 나열하거나 장황하게 설명하지 마.
 
 class=ORDER
 - 옵션(온도 등)이나 수량이 발화에 명시되지 않은 경우 (예: "아메리카노 주세요"):
   - action: "ask_options"
   - items: [{"menu":"메뉴명","qty":1,"options":[{"name":"옵션명","value":"선택값"}]}]  (qty는 발화에 수량이 없으면 1로 채우되, 미확정임을 response에서 함께 물어봄)
-  - 미선택 옵션·수량은 response로 한 번에 되물어. 예: "몇 잔 드릴까요? 따뜻하게 드릴까요, 시원하게 드릴까요?"
+  - response는 짧게 한 문장으로만: "옵션을 선택해 주세요." 정도. 온도/사이즈 등 선택지는 화면에 버튼으로 이미 표시되니 response에서 일일이 나열하거나 장황하게 설명하지 마.
 - 메뉴·옵션·수량이 모두 확정된 경우 (예: "아이스 아메리카노 한 잔 줘"):
   - action: "confirm_add"
   - items: [{"menu":"메뉴명","qty":발화에 명시된 수량,"options":[{"name":"옵션명","value":"선택값(예: ICE, HOT, 제외, 추가)"}]}]
