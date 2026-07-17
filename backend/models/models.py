@@ -54,6 +54,7 @@ class Order(Base):
     items      = Column(JSON, nullable=False)         # 주문 항목 배열
     total      = Column(Integer, nullable=False)      # 총 금액
     status     = Column(String(20), default="pending")  # pending/paid/cancelled
+    dine_type  = Column(String(20), nullable=True)    # dine_in / takeout
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 

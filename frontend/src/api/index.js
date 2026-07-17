@@ -1,6 +1,8 @@
 import axios from 'axios'
 
-const api = axios.create({ baseURL: '/api' })
+// timeout 없으면 네트워크가 끊겨도 요청이 영원히 응답을 기다려서, 음성 주문 화면의 마이크가
+// 계속 "처리 중" 상태로 멈춰버리는 문제가 생김 — 반드시 유한한 시간 안에 실패 처리되도록 함
+const api = axios.create({ baseURL: '/api', timeout: 20000 })
 
 api.interceptors.request.use(config => {
   const token = localStorage.getItem('admin_token')

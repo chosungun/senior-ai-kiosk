@@ -122,14 +122,25 @@ def startup():
                 if not menu.description and desc_map.get(menu.name):
                     menu.description = desc_map[menu.name]
 
-        if db.query(FAQ).count() == 0:
-            faqs = [
-                FAQ(question="화장실 어디예요?",      answer="매장 안쪽 오른편에 있어요.",        keywords=["화장실"]),
-                FAQ(question="주차 가능한가요?",       answer="건물 지하 1층 주차장 이용 가능해요.", keywords=["주차"]),
-                FAQ(question="포인트 적립 되나요?",    answer="아날로그 앱으로 적립 가능해요.",   keywords=["포인트","적립"]),
-                FAQ(question="텀블러 할인 되나요?",    answer="개인 텀블러 지참 시 300원 할인돼요.", keywords=["텀블러","할인"]),
-            ]
-            db.add_all(faqs)
+        FAQ_SEED = [
+            FAQ(question="화장실 어디예요?",       answer="매장 안쪽 오른편에 있어요.",             keywords=["화장실"]),
+            FAQ(question="화장실 비밀번호가 뭐예요?", answer="3948*입니다.", keywords=["화장실","비밀번호"]),
+            FAQ(question="주차 가능한가요?",        answer="건물 지하 1층 주차장 이용 가능해요.",     keywords=["주차"]),
+            FAQ(question="포인트 적립 되나요?",     answer="아날로그 앱으로 적립 가능해요.",          keywords=["포인트","적립"]),
+            FAQ(question="텀블러 할인 되나요?",     answer="개인 텀블러 지참 시 300원 할인돼요.",     keywords=["텀블러","할인"]),
+            FAQ(question="와이파이 비밀번호 뭐예요?", answer="analog1234 입니다.",                  keywords=["와이파이","wifi","비밀번호"]),
+            FAQ(question="영업시간이 어떻게 되나요?", answer="매일 08:00~22:00에 영업해요.",         keywords=["영업시간","오픈","마감"]),
+            FAQ(question="쿠폰은 어떻게 써요?",      answer="주문 결제 화면에서 쿠폰 코드를 입력하면 자동 적용돼요.", keywords=["쿠폰","할인코드"]),
+            FAQ(question="알레르기 유발 성분 알 수 있나요?", answer="메뉴 상세 설명에 주요 성분을 안내하고 있어요. 우유, 견과류가 포함된 메뉴는 설명에 표시돼요.", keywords=["알레르기","성분"]),
+            FAQ(question="주문 취소나 환불 되나요?",  answer="결제 직후에는 카운터에서 취소/환불 도와드려요.", keywords=["취소","환불"]),
+            FAQ(question="반려동물과 같이 들어갈 수 있나요?", answer="이동장에 넣은 소형 반려동물은 동반 가능해요.", keywords=["반려동물","강아지","고양이"]),
+            FAQ(question="매장에 흡연 구역이 따로 있나요?", answer="건물 전체가 금연 구역으로 지정되어 있어 매장 내부 및 테라스 모두 흡연이 불가합니다.", keywords=["흡연","담배","금연"]),
+        ]
+
+        existing_questions = {q for (q,) in db.query(FAQ.question).all()}
+        new_faqs = [f for f in FAQ_SEED if f.question not in existing_questions]
+        if new_faqs:
+            db.add_all(new_faqs)
 
         if db.query(StoreInfo).count() == 0:
             db.add(StoreInfo(

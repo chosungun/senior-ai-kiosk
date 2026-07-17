@@ -2,12 +2,17 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Sprout, Speech, LayoutGrid, HelpCircle, ChevronRight } from 'lucide-react'
 import { useA11y } from '../../context/AccessibilityContext'
+import { useOrderType } from '../../context/OrderTypeContext'
+import { useIdle } from '../../context/IdleContext'
 import { getC } from '../../styles/colors'
 import { FF, B, sc } from '../../styles/typography'
 import { FALLBACK } from '../../constants/menus'
 import AIAssistantFAB from '../../components/AIAssistantFAB'
 import ScreenHeader from '../../components/ScreenHeader'
 import { ttsText, getMenus } from '../../api'
+
+const GREETING_TEXT = '안녕하세요, 카페 아날로그입니다.'
+const GREETING_INTERVAL_MS = 5 * 60 * 1000 // 홈 화면에 계속 떠 있는 동안 5분마다 인사말 반복
 
 const SCR_LIGHT = {
   pageBg:        '#ffffff',
@@ -45,7 +50,9 @@ const SCR_HC = {
 
 export default function KioskHome() {
   const nav = useNavigate()
-  const { highContrast, largeFont } = useA11y()
+  const { highContrast, largeFont, screenLowered, volume } = useA11y()
+  const { resetOrderType } = useOrderType()
+  const idle = useIdle()
 
   const fabRef = useRef(null)
   const [menus, setMenus] = useState(FALLBACK)
@@ -54,6 +61,17 @@ export default function KioskHome() {
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 30 * 1000)
     return () => clearInterval(timer)
+  }, [])
+
+  // 홈 화면에 다시 왔다는 것은 새 손님/새 주문의 시작이므로 이전 선택을 초기화
+  useEffect(() => {
+    resetOrderType()
+  }, [])
+
+  // 홈 화면에서는 30초 무응답 감지 모달을 띄우지 않음 — 다른 화면으로 이동하면 다시 활성화
+  useEffect(() => {
+    idle?.setEnabled(false)
+    return () => idle?.setEnabled(true)
   }, [])
 
   useEffect(() => {
@@ -69,15 +87,26 @@ export default function KioskHome() {
     }).catch(() => {})
   }, [])
 
+  // 홈 화면 인사말 — 처음 진입 시 한 번, 이후 화면이 계속 떠 있으면 일정 시간마다 반복
+  const volumeRef = useRef(volume)
+  useEffect(() => { volumeRef.current = volume }, [volume])
+
   useEffect(() => {
-    ttsText('안녕하세요, 카페 아날로그입니다.').then(res => {
-      const blob = res.data instanceof Blob ? res.data : new Blob([res.data], { type: 'audio/mpeg' })
-      const url = URL.createObjectURL(blob)
-      const audio = new Audio(url)
-      audio.onended = () => URL.revokeObjectURL(url)
-      audio.onerror = () => URL.revokeObjectURL(url)
-      audio.play().catch(() => {})
-    }).catch(() => {})
+    const playGreeting = () => {
+      ttsText(GREETING_TEXT).then(res => {
+        const blob = res.data instanceof Blob ? res.data : new Blob([res.data], { type: 'audio/mpeg' })
+        const url = URL.createObjectURL(blob)
+        const audio = new Audio(url)
+        audio.volume = volumeRef.current
+        audio.onended = () => URL.revokeObjectURL(url)
+        audio.onerror = () => URL.revokeObjectURL(url)
+        audio.play().catch(() => {})
+      }).catch(() => {})
+    }
+
+    playGreeting()
+    const timer = setInterval(playGreeting, GREETING_INTERVAL_MS)
+    return () => clearInterval(timer)
   }, [])
 
   const hc = highContrast
@@ -141,11 +170,13 @@ export default function KioskHome() {
           </div>
         </div>
 
-        {/* 캐릭터 이미지 */}
-        <img
-          src="/title.png" alt="직원 캐릭터"
-          style={{ alignSelf: 'center', maxHeight: '82%', maxWidth: '62%', objectFit: 'contain', filter: scr.charFilter }}
-        />
+        {/* 캐릭터 이미지 — 화면 내리기 사용 중엔 공간 확보를 위해 숨김 */}
+        {!screenLowered && (
+          <img
+            src="/title.png" alt="직원 캐릭터"
+            style={{ alignSelf: 'center', maxHeight: '82%', maxWidth: '62%', objectFit: 'contain', filter: scr.charFilter }}
+          />
+        )}
 
         {/* 3개 주문 방법 버튼 */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 24, width: '100%', maxWidth: 760, alignSelf: 'center' }}>

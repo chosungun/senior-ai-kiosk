@@ -6,10 +6,13 @@ import {
 } from 'lucide-react'
 import { getMenus } from '../../api'
 import { useA11y } from '../../context/AccessibilityContext'
+import { useOrderType } from '../../context/OrderTypeContext'
 import { getC } from '../../styles/colors'
 import { FF, H, B, BM, L, NAV, sc } from '../../styles/typography'
 import { FALLBACK } from '../../constants/menus'
 import ScreenHeader, { HeaderIconButton } from '../../components/ScreenHeader'
+import OrderTypeModal from '../../components/OrderTypeModal'
+import DineTypeBadge from '../../components/DineTypeBadge'
 
 const TABS = ['커피', '논커피', '티/에이드', '디저트']
 const fmt = n => n.toLocaleString() + '원'
@@ -26,6 +29,7 @@ export default function KioskOrder() {
   const nav = useNavigate()
   const location = useLocation()
   const { highContrast, largeFont } = useA11y()
+  const { orderType, setOrderType } = useOrderType()
 
   const [menus, setMenus]               = useState(FALLBACK)
   const [tab, setTab]                   = useState('커피')
@@ -99,11 +103,15 @@ export default function KioskOrder() {
       height: '100%', display: 'flex', flexDirection: 'column',
       background: T.bg, fontFamily: FF, position: 'relative', overflow: 'hidden',
     }}>
+      {/* 매장 식사 / 포장 여부 확인 — 답할 때까지 메뉴 화면을 가림 */}
+      {!orderType && <OrderTypeModal onSelect={setOrderType} hc={hc} lf={lf} />}
+
       {/* Header */}
       <ScreenHeader
         C={C} lf={lf}
         left={<HeaderIconButton icon={Home} onClick={() => nav('/kiosk')} ariaLabel="처음으로" C={C} />}
         title="메뉴 주문"
+        right={orderType && <DineTypeBadge type={orderType} C={C} lf={lf} />}
       />
 
       {/* AI banner */}

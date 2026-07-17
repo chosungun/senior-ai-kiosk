@@ -24,7 +24,7 @@ def _ncp_headers(content_type: str) -> dict:
 
 # 옵션/명령어는 잘못 인식되면 주문 전체가 틀어지므로 메뉴명보다 먼저(우선순위 높게) 부스팅
 _STATIC_BOOST_WORDS = [
-    "아이스", "따뜻하게", "시원하게", "사이즈", "아이스크림", "샷", "샷추가", "라떼",
+    "아이스", "따뜻하게", "시원하게", "사이즈", "아이스크림", "샷", "샷추가", "라떼", "크로플",
     "처음으로", "결제할게요", "직원불러줘", "취소할래",
 ]
 
@@ -84,8 +84,8 @@ class TTSRequest(BaseModel):
 @router.post("/tts")
 async def tts(req: TTSRequest):
     url_path = "/tts-premium/v1/tts"
-    # 노년층 난청 대응: pitch/speed 양수(낮고 느리게), alpha 음수(낮고 따뜻한 음색), emotion 중립
-    body     = f"speaker={req.speaker}&volume=0&speed=2&pitch=2&alpha=-2&emotion=0&format=mp3&text={req.text}".encode()
+    # 노년층 난청 대응: pitch 양수(낮게), alpha 음수(낮고 따뜻한 음색), emotion 중립. speed는 너무 느리지 않도록 소폭만 낮춤
+    body     = f"speaker={req.speaker}&volume=0&speed=1&pitch=2&alpha=-2&emotion=0&format=mp3&text={req.text}".encode()
     async with httpx.AsyncClient(timeout=30.0) as client:
         res = await client.post(
             f"https://naveropenapi.apigw.ntruss.com{url_path}",

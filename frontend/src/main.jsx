@@ -4,6 +4,8 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 
 // Accessibility context
 import { AccessibilityProvider } from './context/AccessibilityContext'
+import { IdleProvider } from './context/IdleContext'
+import { OrderTypeProvider } from './context/OrderTypeContext'
 
 // 키오스크 화면
 import KioskFrame   from './components/KioskFrame'
@@ -24,7 +26,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <BrowserRouter>
       <Routes>
         {/* 키오스크 — KioskFrame: dev에서 1080×1920 프리뷰 프레임, prod에서 투명 통과 */}
-        <Route element={<KioskFrame />}>
+        <Route element={<OrderTypeProvider><IdleProvider><KioskFrame /></IdleProvider></OrderTypeProvider>}>
           <Route path="/kiosk"         element={<KioskHome />} />
           <Route path="/kiosk/order"   element={<KioskOrder />} />
           <Route path="/kiosk/payment" element={<KioskPayment />} />

@@ -1,28 +1,28 @@
 import { useState, useEffect } from 'react'
 import { Outlet } from 'react-router-dom'
-import { Contrast, ArrowDownToLine, ZoomIn, Volume2 } from 'lucide-react'
+import { Contrast, ArrowDownToLine, ZoomIn, Volume2, VolumeX } from 'lucide-react'
 import { useA11y } from '../context/AccessibilityContext'
+import { useIdle } from '../context/IdleContext'
 import { getC } from '../styles/colors'
 import { FF, BM, sc } from '../styles/typography'
+import IdleCheckModal from './IdleCheckModal'
 
 const W = 1080
 const H = 1920
 
 function A11yBottomBar() {
-  const { highContrast, setHighContrast, largeFont, setLargeFont, setSpeechRate } = useA11y()
+  const {
+    highContrast, setHighContrast, largeFont, setLargeFont, volume, setVolume,
+    screenLowered, setScreenLowered,
+  } = useA11y()
   const hc = highContrast
   const lf = largeFont ? 1.2 : 1
   const C = getC(hc)
-  const [rateStep, setRateStep] = useState(5)
+  const volumeStep = Math.round(volume * 10)
 
-  const changeRate = (delta) => {
-    const next = Math.min(10, Math.max(1, rateStep + delta))
-    setRateStep(next)
-    setSpeechRate(0.5 + next * 0.1)
-  }
-
-  const scrollDown = () => {
-    document.querySelector('[data-kiosk-scroll]')?.scrollBy({ top: 300, behavior: 'smooth' })
+  const changeVolume = (delta) => {
+    const next = Math.min(10, Math.max(0, volumeStep + delta))
+    setVolume(next / 10)
   }
 
   return (
@@ -41,9 +41,10 @@ function A11yBottomBar() {
         C={C} lf={lf}
       />
       <A11yBtn
-        icon={<ArrowDownToLine size={34} color={C.textSub} />}
+        icon={<ArrowDownToLine size={34} color={screenLowered ? C.primary : C.textSub} />}
         label="화면 내리기"
-        onClick={scrollDown}
+        active={screenLowered}
+        onClick={() => setScreenLowered(!screenLowered)}
         C={C} lf={lf}
       />
       <A11yBtn
@@ -55,17 +56,19 @@ function A11yBottomBar() {
       />
 
       <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 14 }}>
-        <Volume2 size={38} color={C.textSub} />
-        <button onClick={() => changeRate(-1)} style={{
+        {volumeStep === 0
+          ? <VolumeX size={38} color={C.textSub} />
+          : <Volume2 size={38} color={C.textSub} />}
+        <button onClick={() => changeVolume(-1)} style={{
           width: 72, height: 72, borderRadius: 18,
           border: 'none', background: C.bg,
           cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
           color: C.textSub, fontSize: 36, fontWeight: 600,
         }}>−</button>
         <span style={{ color: C.text, minWidth: 44, textAlign: 'center', fontWeight: 700, fontSize: 36 }}>
-          {rateStep}
+          {volumeStep}
         </span>
-        <button onClick={() => changeRate(+1)} style={{
+        <button onClick={() => changeVolume(+1)} style={{
           width: 72, height: 72, borderRadius: 18,
           border: 'none', background: C.bg,
           cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -93,9 +96,42 @@ function A11yBtn({ icon, label, active, onClick, C, lf }) {
   )
 }
 
+// 화면 내리기 활성화 시 위쪽 40%를 비워 조작 영역을 하단 60%로 낮춘다 (휠체어 이용자 접근성)
+function ScreenLoweredOverlay({ lf }) {
+  return (
+    <div style={{
+      flex: '0 0 40%', flexShrink: 0,
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      gap: 12, background: '#111827', fontFamily: FF,
+    }}>
+      <ArrowDownToLine size={40 * lf} color="#9CA3AF" />
+      <span style={{ fontSize: 24 * lf, fontWeight: 600, color: '#E5E7EB' }}>화면 내리기 사용중</span>
+    </div>
+  )
+}
+
+function KioskContent({ screenLowered, hc, lf, idle }) {
+  return (
+    <>
+      {screenLowered && <ScreenLoweredOverlay lf={lf} />}
+      <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
+        <div style={{ position: 'absolute', inset: 0 }}>
+          <Outlet />
+        </div>
+        {idle?.showPrompt && <IdleCheckModal onResolve={idle.resolvePrompt} hc={hc} lf={lf} />}
+      </div>
+    </>
+  )
+}
+
 export default function KioskFrame({ showA11yBar = true }) {
   const showFrame =
     import.meta.env.DEV && import.meta.env.VITE_KIOSK_FRAME !== 'off'
+
+  const { highContrast, largeFont, screenLowered } = useA11y()
+  const idle = useIdle() // 어드민 화면에는 IdleProvider가 없어 null — 이때는 항상 비활성
+  const hc = highContrast
+  const lf = largeFont ? 1.2 : 1
 
   const [scale, setScale] = useState(1)
 
@@ -113,10 +149,8 @@ export default function KioskFrame({ showA11yBar = true }) {
 
   if (!showFrame) return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
-        <div style={{ position: 'absolute', inset: 0 }}>
-          <Outlet />
-        </div>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        <KioskContent screenLowered={screenLowered} hc={hc} lf={lf} idle={idle} />
       </div>
       {showA11yBar && <A11yBottomBar />}
     </div>
@@ -173,10 +207,8 @@ export default function KioskFrame({ showA11yBar = true }) {
           background: '#f8fafc',
           display: 'flex', flexDirection: 'column',
         }}>
-          <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
-            <div style={{ position: 'absolute', inset: 0 }}>
-              <Outlet />
-            </div>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <KioskContent screenLowered={screenLowered} hc={hc} lf={lf} idle={idle} />
           </div>
           {showA11yBar && <A11yBottomBar />}
         </div>

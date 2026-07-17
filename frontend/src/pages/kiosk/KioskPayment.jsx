@@ -2,14 +2,17 @@ import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import {
   ArrowLeft, Home, CreditCard, Smartphone, Banknote,
-  Check, Receipt, X, Loader2, Coffee,
+  Check, Receipt, X, Loader2, Coffee, Plus, Minus,
 } from 'lucide-react'
 import { createOrder } from '../../api'
 import { useA11y } from '../../context/AccessibilityContext'
+import { useOrderType } from '../../context/OrderTypeContext'
 import { getC } from '../../styles/colors'
 import { FF, B, BM, L, sc } from '../../styles/typography'
 import ScreenHeader, { HeaderIconButton } from '../../components/ScreenHeader'
 import StepIndicator from '../../components/StepIndicator'
+import DineTypeBadge from '../../components/DineTypeBadge'
+import NumericKeypad, { formatPhoneDigits } from '../../components/NumericKeypad'
 
 const fmt = n => n.toLocaleString() + '원'
 
@@ -35,12 +38,14 @@ export default function KioskPayment() {
   const nav = useNavigate()
   const location = useLocation()
   const { highContrast, largeFont } = useA11y()
+  const { orderType } = useOrderType()
 
   const [cart, setCart] = useState(location.state?.cart || [])
   const [payStep, setPayStep] = useState('summary')
   const [payMethod, setPayMethod] = useState(null)
   const [pointChoice, setPointChoice] = useState(null)
   const [phone, setPhone] = useState('')
+  const [showNumpad, setShowNumpad] = useState(false)
   const [receiptChoice, setReceiptChoice] = useState(null)
   const [paying, setPaying] = useState(false)
   const [orderNum, setOrderNum] = useState(null)
@@ -60,6 +65,9 @@ export default function KioskPayment() {
   const stepIdx = payStep === 'summary' ? 0 : payStep === 'method' ? 1 : 2
 
   const removeItem = i => setCart(prev => prev.filter((_, idx) => idx !== i))
+  const changeQty = (i, delta) => setCart(prev => prev.map((item, idx) =>
+    idx === i ? { ...item, qty: Math.max(1, item.qty + delta) } : item
+  ))
 
   const goBack = () => {
     if (payStep === 'method') setPayStep('summary')
@@ -69,7 +77,7 @@ export default function KioskPayment() {
   const confirmPay = async () => {
     if (!payMethod || paying || !pointChoice) return
     setPaying(true)
-    try { await createOrder({ items: cart, total, payment_method: payMethod }) } catch { /* best effort */ }
+    try { await createOrder({ items: cart, total, payment_method: payMethod, dine_type: orderType }) } catch { /* best effort */ }
     setOrderNum('#' + String(Math.floor(1000 + Math.random() * 9000)))
     setPaidTotal(total)
     setCart([])
@@ -83,16 +91,20 @@ export default function KioskPayment() {
   }
 
   return (
-    <div style={{
-      height: '100%', background: T.card,
-      display: 'flex', flexDirection: 'column', overflow: 'hidden',
-      fontFamily: FF,
-    }}>
+    <div
+      onClick={() => setShowNumpad(false)}
+      style={{
+        height: '100%', background: T.card, position: 'relative',
+        display: 'flex', flexDirection: 'column', overflow: 'hidden',
+        fontFamily: FF,
+      }}
+    >
       <ScreenHeader
         C={C} lf={lf} title="결제"
         left={payStep !== 'receipt' && payStep !== 'complete'
           ? <HeaderIconButton icon={ArrowLeft} onClick={goBack} ariaLabel="뒤로가기" C={C} />
           : null}
+        right={orderType && <DineTypeBadge type={orderType} C={C} lf={lf} />}
       />
 
       {/* 스텝 인디케이터 (음성 주문 화면과 동일한 형태) */}
@@ -125,8 +137,30 @@ export default function KioskPayment() {
                         <span key={k} style={{ ...sc(BM.SM, lf), color: T.sub }}>{optionLabel(k, v)}</span>
                       ))}
                     </div>
-                    <div style={{ ...sc(L.XS, lf), color: T.primary }}>
-                      {fmt(item.price)} × {item.qty}{unitOf(item)}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                      <span style={{ ...sc(L.XS, lf), color: T.primary }}>
+                        {fmt(item.price * item.qty)}
+                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <button onClick={() => changeQty(i, -1)} disabled={item.qty <= 1} style={{
+                          width: 44, height: 44, borderRadius: '50%', background: T.bg,
+                          border: `2px solid ${C.borderMid}`, cursor: item.qty <= 1 ? 'default' : 'pointer',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                          opacity: item.qty <= 1 ? 0.4 : 1,
+                        }}>
+                          <Minus size={20} color={T.text} />
+                        </button>
+                        <span style={{ ...sc(B.SM, lf), color: T.text, minWidth: 44, textAlign: 'center' }}>
+                          {item.qty}{unitOf(item)}
+                        </span>
+                        <button onClick={() => changeQty(i, 1)} style={{
+                          width: 44, height: 44, borderRadius: '50%', background: T.primary,
+                          border: 'none', cursor: 'pointer',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                        }}>
+                          <Plus size={20} color={T.primaryText} />
+                        </button>
+                      </div>
                     </div>
                   </div>
                   <button onClick={() => removeItem(i)} style={{
@@ -210,7 +244,7 @@ export default function KioskPayment() {
             }}>
               적립할게요
             </button>
-            <button onClick={() => setPointChoice('no')} style={{
+            <button onClick={() => { setPointChoice('no'); setShowNumpad(false) }} style={{
               flex: 1, textAlign: 'center', padding: '30px 0', borderRadius: 22, cursor: 'pointer',
               background: pointChoice === 'no' ? C.primaryBg : T.card,
               border: `2px solid ${pointChoice === 'no' ? T.primary : C.borderMid}`,
@@ -223,16 +257,17 @@ export default function KioskPayment() {
           {pointChoice === 'yes' && (
             <div style={{ marginTop: 24, padding: 28, borderRadius: 22, border: `1.5px solid ${C.borderMid}`, background: T.card }}>
               <div style={{ fontSize: 32 * lf, fontWeight: 700, color: T.sub, marginBottom: 14 }}>적립할 휴대폰 번호를 입력해 주세요</div>
-              <input
-                value={phone}
-                onChange={e => setPhone(e.target.value)}
-                placeholder="010-0000-0000"
+              <div
+                onClick={e => { e.stopPropagation(); setShowNumpad(true) }}
                 style={{
                   width: '100%', padding: '22px 24px', borderRadius: 16,
-                  border: `2px solid ${T.primary}`, background: T.bg,
-                  fontSize: 38 * lf, fontWeight: 700, color: T.text, outline: 'none', fontFamily: FF,
+                  border: `2px solid ${showNumpad ? T.primary : C.borderMid}`, background: T.bg, boxSizing: 'border-box',
+                  fontSize: 38 * lf, fontWeight: 700, color: phone ? T.text : C.textMuted, fontFamily: FF,
+                  cursor: 'pointer',
                 }}
-              />
+              >
+                {phone ? formatPhoneDigits(phone) : '010-0000-0000'}
+              </div>
             </div>
           )}
 
@@ -319,6 +354,25 @@ export default function KioskPayment() {
           </button>
         </div>
       )}
+
+      {/* 숫자 자판 — 전화번호 입력창을 터치하면 아래에서 올라오고, 다른 곳을 터치하면 내려감 */}
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 60,
+          background: T.card, border: `2px solid ${C.borderMid}`, borderBottom: 'none',
+          padding: '20px 36px',
+          transform: showNumpad ? 'translateY(0)' : 'translateY(100%)',
+          transition: 'transform 0.25s ease',
+          pointerEvents: showNumpad ? 'auto' : 'none',
+        }}
+      >
+        <NumericKeypad
+          C={C} lf={lf}
+          onDigit={d => setPhone(p => p.length < 11 ? p + d : p)}
+          onBackspace={() => setPhone(p => p.slice(0, -1))}
+        />
+      </div>
 
       <style>{`
         @keyframes paySpin { to { transform: rotate(360deg); } }

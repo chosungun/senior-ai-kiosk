@@ -23,6 +23,14 @@ export default function AdminOrders() {
               <span style={{ flex: 1, color: '#64748b', fontSize: 13 }}>
                 {o.items?.map(i => i.menu).join(', ')}
               </span>
+              {o.dine_type && (
+                <span style={{
+                  fontSize: 12, padding: '3px 8px', borderRadius: 6,
+                  background: '#eff6ff', color: '#2563eb',
+                }}>
+                  {o.dine_type === 'takeout' ? '포장' : '매장'}
+                </span>
+              )}
               <span style={{ fontWeight: 500 }}>{Number(o.total).toLocaleString()}원</span>
               <span style={{
                 fontSize: 12, padding: '3px 8px', borderRadius: 6,
