@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router-dom'
 import {
   Mic, MicOff, Keyboard, Volume2, VolumeX, Bot, ArrowLeft, Home,
   Check, Flame, Snowflake, Coffee, ShoppingCart,
+  CreditCard, Smartphone, Banknote, Loader2,
 } from 'lucide-react'
-import { agentChat, sttAudio, ttsText } from '../api'
+import { agentChat, sttAudio, ttsText, createOrder } from '../api'
 import { useA11y } from '../context/AccessibilityContext'
 import { getC } from '../styles/colors'
 import { FF, B, BM, L, NAV, sc } from '../styles/typography'
@@ -29,6 +30,19 @@ function getDisplay(label) {
 
 function findMenu(name, menus) {
   return menus.find(m => m.name === name || m.name.includes(name) || name.includes(m.name))
+}
+
+// ── 음성 결제 ─────────────────────────────────────────────────────────
+const PAY_METHODS = [
+  { key: 'card',   label: '카드 결제', icon: CreditCard, match: /카드/ },
+  { key: 'simple', label: '간편 결제', icon: Smartphone, match: /간편|삼성페이|페이|폰\s*결제/ },
+  { key: 'cash',   label: '현금 결제', icon: Banknote, match: /현금/ },
+]
+
+function matchYesNo(text) {
+  if (/아니|괜찮|안\s*할|싫어|필요\s*없/.test(text)) return false
+  if (/네|응|예|좋아|적립|출력|할게|해줘|맞아/.test(text)) return true
+  return null
 }
 
 const FAQ_SUGGESTIONS = [
@@ -141,6 +155,14 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
   const [voiceCart, setVoiceCart]   = useState([])
   const [showCartDetail, setShowCartDetail] = useState(false)
 
+  // 음성 결제 단계: null | 'method' | 'points' | 'phone' | 'processing' | 'receipt' | 'complete'
+  const [paymentStep, setPaymentStepState] = useState(null)
+  const [paymentMethod, setPaymentMethod]  = useState(null)
+  const [pointChoice, setPointChoice]      = useState(null)
+  const [receiptChoice, setReceiptChoice]  = useState(null)
+  const [orderNum, setOrderNum]            = useState(null)
+  const [paidTotal, setPaidTotal]          = useState(0)
+
   const recRef        = useRef(null)
   const mrRef         = useRef(null)
   const chunksRef     = useRef([])
@@ -151,8 +173,10 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
   const optCtxRef     = useRef(null)
   const askContinueRef = useRef(false)
   const revealTimerRef = useRef(null)
+  const paymentStepRef = useRef(null)
 
   const setOptCtx = ctx => { optCtxRef.current = ctx; setOptCtxState(ctx) }
+  const setPaymentStep = step => { paymentStepRef.current = step; setPaymentStepState(step) }
   const nextId    = () => ++idRef.current
 
   useImperativeHandle(ref, () => ({ open: (m = 'faq') => { setMode(m); setOpen(true) } }), [])
@@ -166,6 +190,12 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
       setOptCtx(null)
       setVoiceCart([])
       setShowCartDetail(false)
+      setPaymentStep(null)
+      setPaymentMethod(null)
+      setPointChoice(null)
+      setReceiptChoice(null)
+      setOrderNum(null)
+      setPaidTotal(0)
       askContinueRef.current = false
       const greeting = mode === 'order'
         ? '안녕하세요! 어떤 메뉴를 주문하고 싶으신가요?'
@@ -272,12 +302,21 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
   const processInput = async text => {
     if (!text?.trim()) { setVoiceState('idle'); return }
     setLiveWords([])
-    if (askContinueRef.current) {
-      setVoiceState('processing'); await handleContinueDecision(text); setVoiceState('idle'); return
+    try {
+      if (paymentStepRef.current && !['processing', 'complete'].includes(paymentStepRef.current)) {
+        setVoiceState('processing'); await handlePaymentVoice(text); return
+      }
+      if (askContinueRef.current) {
+        setVoiceState('processing'); await handleContinueDecision(text); return
+      }
+      const ctx = optCtxRef.current
+      if (ctx) { setVoiceState('processing'); await handleOptionVoice(text, ctx); return }
+      await processChat(text)
+    } catch {
+      revealWords('일시적인 오류가 발생했어요. 다시 시도해 주세요.')
+    } finally {
+      setVoiceState('idle')
     }
-    const ctx = optCtxRef.current
-    if (ctx) { setVoiceState('processing'); await handleOptionVoice(text, ctx); setVoiceState('idle'); return }
-    await processChat(text)
   }
 
   // ── 담은 뒤 "계속 주문" vs "결제" 의사 확인 ─────────────────────
@@ -285,12 +324,82 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
     askContinueRef.current = false
     const wantsPayment = /결제|계산|페이|그만|끝낼래|다\s*됐/.test(text)
     if (wantsPayment) {
-      const total = voiceCart.reduce((s, i) => s + i.price * i.qty, 0)
-      await speak('결제 화면으로 이동할게요.')
-      nav('/kiosk/payment', { state: { cart: voiceCart, total } })
+      await startVoicePayment()
     } else {
       // 결제 의사가 아니면 계속 주문하려는 것으로 보고 바로 이어서 처리
       await processChat(text)
+    }
+  }
+
+  // ── 음성 결제 흐름: 화면 전환 없이 오버레이 안에서 결제수단→포인트→완료까지 진행 ──
+  const startVoicePayment = async () => {
+    setShowCartDetail(false)
+    setPaymentStep('method')
+    await speak('결제 수단을 말씀해 주세요. 카드 결제, 간편 결제, 현금 결제 중에 선택하실 수 있어요.')
+  }
+
+  const selectPaymentMethod = async key => {
+    const m = PAY_METHODS.find(x => x.key === key)
+    if (!m) return
+    setPaymentMethod(key)
+    setPaymentStep('points')
+    await speak(`${m.label}로 결제할게요. 포인트를 적립하시겠어요?`)
+  }
+
+  const selectPoints = async yes => {
+    if (yes) {
+      setPointChoice('yes')
+      setPaymentStep('phone')
+      setShowKeyboard(true)
+      await speak('적립할 휴대폰 번호를 말씀하시거나 화면에 입력해 주세요.')
+    } else {
+      setPointChoice('no')
+      await runVoicePayment()
+    }
+  }
+
+  const submitPhone = async () => {
+    setShowKeyboard(false)
+    await runVoicePayment()
+  }
+
+  const runVoicePayment = async () => {
+    const amount = cartTotalDisplay
+    setPaymentStep('processing')
+    await speak('결제를 진행할게요. 잠시만 기다려 주세요.')
+    try { await createOrder({ items: cartItems, total: amount, payment_method: paymentMethod }) } catch { /* best effort */ }
+    const num = '#' + String(Math.floor(1000 + Math.random() * 9000))
+    setOrderNum(num)
+    setPaidTotal(amount)
+    setVoiceCart([])
+    setPaymentStep('receipt')
+    await speak(`결제가 완료되었습니다. 주문번호는 ${num}, 금액은 ${fmt(amount)}입니다. 영수증을 출력해 드릴까요?`)
+  }
+
+  const selectReceipt = async yes => {
+    setReceiptChoice(yes ? 'yes' : 'no')
+    setPaymentStep('complete')
+    await speak(yes ? '영수증을 출력해 드릴게요. 이용해 주셔서 감사합니다!' : '이용해 주셔서 감사합니다!')
+  }
+
+  const handlePaymentVoice = async text => {
+    const step = paymentStepRef.current
+    if (step === 'method') {
+      const found = PAY_METHODS.find(m => m.match.test(text))
+      if (found) await selectPaymentMethod(found.key)
+      else await speak('다시 말씀해 주세요. 카드 결제, 간편 결제, 현금 결제 중에 선택해 주세요.')
+    } else if (step === 'points') {
+      const yn = matchYesNo(text)
+      if (yn === null) await speak('적립하시려면 "네", 안 하시려면 "아니요"라고 말씀해 주세요.')
+      else await selectPoints(yn)
+    } else if (step === 'phone') {
+      const digits = text.replace(/\D/g, '')
+      if (digits.length >= 8) await submitPhone(digits)
+      else await speak('전화번호를 다시 말씀하시거나 화면에 입력해 주세요. 건너뛰시려면 건너뛰기 버튼을 눌러주세요.')
+    } else if (step === 'receipt') {
+      const yn = matchYesNo(text)
+      if (yn === null) await speak('영수증이 필요하시면 "네", 필요 없으시면 "아니요"라고 말씀해 주세요.')
+      else await selectReceipt(yn)
     }
   }
 
@@ -406,6 +515,10 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
   }
 
   const getInputHint = () => {
+    if (paymentStep === 'method') return '카드 결제 / 간편 결제 / 현금 결제'
+    if (paymentStep === 'points') return '"네" 또는 "아니요"로 입력하세요'
+    if (paymentStep === 'phone') return '휴대폰 번호를 입력하세요 (예: 010-0000-0000)'
+    if (paymentStep === 'receipt') return '"네" 또는 "아니요"로 입력하세요'
     if (!optCtx) return '여기에 입력하세요...'
     if (optCtx.type === 'confirm') return '"네" 또는 "아니요"로 입력하세요'
     const hint = optCtx.choices.map(c => getDisplay(c.label)).join(' / ')
@@ -424,7 +537,9 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
   const activeItem = activeItems[0]
   const hasUnresolvedOpts = !!activeItem && (activeItem.menuOptions || []).some(o => !activeItem.selectedOptions[o.name])
   const hasConfirmedItem = Object.keys(confirmed).length > 0
-  const voiceStep = activeOrderMsg
+  const voiceStep = paymentStep
+    ? 3
+    : activeOrderMsg
     ? (hasUnresolvedOpts ? 2 : 3)
     : (hasConfirmedItem ? 3 : 1)
 
@@ -436,8 +551,7 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
   const cartTotalDisplay = onAddToCart ? cartTotal : voiceCart.reduce((s, i) => s + i.price * i.qty, 0)
   const cartQtyCount = cartItems.reduce((s, it) => s + it.qty, 0)
   const goToPayment = () => {
-    setShowCartDetail(false)
-    nav('/kiosk/payment', { state: { cart: cartItems, total: cartTotalDisplay } })
+    startVoicePayment()
   }
 
   return (
@@ -579,7 +693,7 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
             </div>
 
             {/* 추천 메뉴 카드 (사진 크게 + 이름 작게, 3개) */}
-            {pendingRecs.length > 0 && (
+            {!paymentStep && pendingRecs.length > 0 && (
               <div style={{
                 width: '100%', flexShrink: 0,
                 display: 'flex', gap: 20, justifyContent: 'center',
@@ -638,7 +752,7 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
             )}
 
             {/* 대기 중인 주문 카드 (옵션 선택 패널) — 사용자 발화 박스보다 위에 표시 */}
-            {activeOrderMsg && !confirmed[activeOrderMsg.id] && (
+            {!paymentStep && activeOrderMsg && !confirmed[activeOrderMsg.id] && (
               <div style={{ width: '72%', flexShrink: 0 }}>
                 <OrderCard
                   msg={activeOrderMsg}
@@ -696,6 +810,29 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
                     setMessages(prev => prev.filter(m => m.id !== activeOrderMsg.id))
                     speak('알겠습니다! 다른 메뉴를 원하시면 말씀해 주세요.')
                   }}
+                />
+              </div>
+            )}
+
+            {/* 음성 결제 카드 — 결제수단 → 포인트적립 → (전화번호) → 처리중 → 영수증 → 완료 */}
+            {paymentStep && (
+              <div style={{ width: '72%', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 16 }}>
+                {['method', 'points', 'phone'].includes(paymentStep) && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', ...sc(BM.SM, lf), color: C.textSub }}>
+                    <span>총 결제금액</span>
+                    <span style={{ color: C.text, fontWeight: 700 }}>{fmt(cartTotalDisplay)}</span>
+                  </div>
+                )}
+                <VoicePaymentCard
+                  step={paymentStep}
+                  orderNum={orderNum}
+                  paidTotal={paidTotal}
+                  C={C} lf={lf} hc={hc}
+                  onSelectMethod={selectPaymentMethod}
+                  onSelectPoints={selectPoints}
+                  onSkipPhone={submitPhone}
+                  onSelectReceipt={selectReceipt}
+                  onHome={() => { setOpen(false); nav('/kiosk') }}
                 />
               </div>
             )}
@@ -1050,4 +1187,111 @@ function OrderCard({
       )}
     </div>
   )
+}
+
+// ── 음성 결제 카드 ────────────────────────────────────────────────────
+function VoicePaymentCard({
+  step, orderNum, paidTotal,
+  C, lf, hc,
+  onSelectMethod, onSelectPoints, onSkipPhone, onSelectReceipt, onHome,
+}) {
+  const cardStyle = {
+    background: hc ? '#141414' : '#FFFFFF',
+    border: `2px solid ${C.borderMid}`,
+    borderRadius: 28, padding: '32px 36px',
+    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 24,
+  }
+  const title = t => <div style={{ ...sc(B.SM, lf), color: C.text, textAlign: 'center' }}>{t}</div>
+  const yesNoBtn = (label, primary, onClick) => (
+    <button onClick={onClick} style={{
+      flex: 1, padding: '24px 0', borderRadius: 20, cursor: 'pointer',
+      background: primary ? C.primaryBg : C.bg,
+      border: `2px solid ${primary ? C.primary : C.borderMid}`,
+      ...sc(NAV.SB, lf), color: primary ? C.primary : C.text, fontFamily: FF,
+    }}>{label}</button>
+  )
+
+  if (step === 'method') {
+    return (
+      <div style={cardStyle}>
+        {title('결제 수단을 선택해 주세요')}
+        <div style={{ display: 'flex', gap: 16, width: '100%' }}>
+          {PAY_METHODS.map(m => (
+            <button key={m.key} onClick={() => onSelectMethod(m.key)} style={{
+              flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12,
+              padding: '24px 12px', borderRadius: 20, cursor: 'pointer',
+              background: C.bg, border: `2px solid ${C.borderMid}`, fontFamily: FF,
+            }}>
+              <m.icon size={36} color={C.primary} />
+              <span style={{ ...sc(BM.SM, lf), color: C.text, textAlign: 'center' }}>{m.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    )
+  }
+  if (step === 'points') {
+    return (
+      <div style={cardStyle}>
+        {title('포인트를 적립하시겠어요?')}
+        <div style={{ display: 'flex', gap: 16, width: '100%' }}>
+          {yesNoBtn('적립할게요', true, () => onSelectPoints(true))}
+          {yesNoBtn('괜찮아요', false, () => onSelectPoints(false))}
+        </div>
+      </div>
+    )
+  }
+  if (step === 'phone') {
+    return (
+      <div style={cardStyle}>
+        {title('적립할 휴대폰 번호를 말씀하시거나 아래 키보드로 입력해 주세요')}
+        <button onClick={onSkipPhone} style={{
+          padding: '18px 32px', borderRadius: 18, cursor: 'pointer',
+          background: C.bg, border: `2px solid ${C.borderMid}`,
+          ...sc(BM.SM, lf), color: C.textSub, fontFamily: FF,
+        }}>건너뛰기</button>
+      </div>
+    )
+  }
+  if (step === 'processing') {
+    return (
+      <div style={cardStyle}>
+        <Loader2 size={40} color={C.primary} style={{ animation: 'voicePaySpin 0.8s linear infinite' }} />
+        {title('결제 처리 중이에요...')}
+        <style>{`@keyframes voicePaySpin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    )
+  }
+  if (step === 'receipt') {
+    return (
+      <div style={cardStyle}>
+        {title('영수증을 출력해 드릴까요?')}
+        <div style={{ display: 'flex', gap: 16, width: '100%' }}>
+          {yesNoBtn('출력할게요', true, () => onSelectReceipt(true))}
+          {yesNoBtn('괜찮아요', false, () => onSelectReceipt(false))}
+        </div>
+      </div>
+    )
+  }
+  if (step === 'complete') {
+    return (
+      <div style={cardStyle}>
+        <div style={{
+          width: 96, height: 96, borderRadius: '50%', background: C.primary,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <Check size={48} color={C.primaryText} strokeWidth={3} />
+        </div>
+        {title('결제가 완료되었습니다')}
+        <div style={{ ...sc(BM.SM, lf), color: C.textSub }}>주문번호 {orderNum}</div>
+        <div style={{ ...sc(L.SM, lf), color: C.primary }}>{fmt(paidTotal)}</div>
+        <button onClick={onHome} style={{
+          marginTop: 8, padding: '20px 48px', borderRadius: 20,
+          background: C.primary, color: C.primaryText, border: 'none',
+          ...sc(NAV.SB, lf), cursor: 'pointer', fontFamily: FF,
+        }}>처음으로</button>
+      </div>
+    )
+  }
+  return null
 }
