@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { getMenus, createMenu, updateMenu, deleteMenu } from '../../api'
 
-const EMPTY = { name: '', category: '커피', price: '', description: '', options: [] }
+const EMPTY = { name: '', category: '커피', price: '', description: '', allergens: '', options: [] }
 const CATS   = ['커피', '논커피', '디저트', '푸드']
 
 export default function AdminMenus() {
@@ -63,6 +63,12 @@ export default function AdminMenus() {
               onChange={e => setForm(f => ({...f, description: e.target.value}))}
               placeholder="간단한 메뉴 설명" />
           </div>
+          <div>
+            <label style={lbl}>알레르기 유발 성분</label>
+            <input style={inp} value={form.allergens || ''}
+              onChange={e => setForm(f => ({...f, allergens: e.target.value}))}
+              placeholder="예: 우유, 계란 (없으면 비워두세요)" />
+          </div>
         </div>
         <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
           <button onClick={save} style={btnPrimary}>
@@ -90,6 +96,9 @@ export default function AdminMenus() {
           }}>
             <span style={{ flex: 1, fontWeight: 500 }}>{m.name}</span>
             <span style={{ color: '#64748b', fontSize: 13 }}>{m.category}</span>
+            <span style={{ color: '#dc2626', fontSize: 12 }}>
+              {m.allergens ? `알레르기: ${m.allergens}` : ''}
+            </span>
             <span style={{ fontWeight: 500 }}>{Number(m.price).toLocaleString()}원</span>
             <button onClick={() => toggleSoldOut(m)} style={{
               ...btnSecondary, fontSize: 12, padding: '4px 10px',

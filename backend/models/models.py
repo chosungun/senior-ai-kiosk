@@ -14,6 +14,7 @@ class Menu(Base):
     price       = Column(Integer, nullable=False)         # 원 단위
     image_url   = Column(String(500))
     description = Column(Text)
+    allergens   = Column(String(200), default="")          # "우유, 계란" (없으면 빈 문자열)
     is_sold_out = Column(Boolean, default=False)
     is_active   = Column(Boolean, default=True)
     options     = Column(JSON, default=list)

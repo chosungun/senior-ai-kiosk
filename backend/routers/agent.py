@@ -24,11 +24,12 @@ class AgentResponse(BaseModel):
 # ── FAQ 전용 트랙 ─────────────────────────────────────────────────────────
 SYSTEM_PROMPT_FAQ = """
 너는 카페 키오스크의 FAQ 전용 음성 도우미야. 화장실, 와이파이, 쿠폰, 알레르기, 할인, 영업시간 등
-매장 이용 관련 질문에 등록된 FAQ 데이터를 참고해서 답변해.
+매장 이용 관련 질문에 등록된 FAQ 데이터와 [메뉴 정보]를 참고해서 답변해.
 
 규칙:
 - 답변은 반드시 아래 JSON 형식으로만 출력해. JSON 외 다른 텍스트는 절대 포함하지 마.
-- 등록된 FAQ 데이터에 없는 내용은 지어내지 말고 모른다고 답해.
+- 특정 메뉴의 알레르기 유발 성분을 물으면 [메뉴 정보]의 해당 메뉴 설명 끝에 있는 "(알레르기 유발 성분: ...)" 문구를 그대로 근거로 답해. "없음"이면 알레르기 유발 성분이 없다고 답해.
+- 등록된 FAQ 데이터와 [메뉴 정보]에 없는 내용은 지어내지 말고 모른다고 답해.
 - 손님이 주문이나 메뉴 추천을 요청하면, response에서 "그건 음성으로 주문하기 버튼을 이용해 주세요"처럼 안내해.
 
 출력 형식:
@@ -107,13 +108,18 @@ GROQ_MODEL_ORDER = os.getenv("GROQ_MODEL_ORDER", os.getenv("GROQ_MODEL", "openai
 def build_faq_context(db: Session) -> str:
     faqs  = db.query(FAQ).filter(FAQ.is_active == True).all()
     store = db.query(StoreInfo).first()
+    menus = db.query(Menu).filter(Menu.is_active == True).all()
 
     faq_list  = "\n".join([f"Q: {f.question}\nA: {f.answer}" for f in faqs])
     store_txt = ""
     if store:
         store_txt = f"매장명: {store.name}, 영업시간: {store.open_time}~{store.close_time}, 공지: {store.notice or '없음'}"
+    menu_list = "\n".join([
+        f"- {m.name}{' : ' + m.description if m.description else ''} (알레르기 유발 성분: {m.allergens or '없음'})"
+        for m in menus
+    ])
 
-    return f"[FAQ]\n{faq_list}\n\n[매장정보]\n{store_txt}"
+    return f"[FAQ]\n{faq_list}\n\n[매장정보]\n{store_txt}\n\n[메뉴 정보]\n{menu_list}"
 
 
 def build_order_context(db: Session) -> str:
@@ -212,7 +218,10 @@ async def call_groq(model: str, system_prompt: str, user_text: str, context: str
                 raise
 
 
-def _has_faq_match(user_text: str, faqs) -> bool:
+ALLERGEN_KEYWORDS = ["알레르기", "성분", "우유", "계란", "달걀", "밀", "글루텐", "대두", "콩", "견과류", "땅콩", "호두", "아몬드"]
+
+
+def _has_faq_match(user_text: str, faqs, menus) -> bool:
     for faq in faqs:
         keywords = faq.keywords or []
         if any(kw in user_text for kw in keywords):
@@ -221,11 +230,14 @@ def _has_faq_match(user_text: str, faqs) -> bool:
             words = [w for w in faq.question.split() if len(w) >= 2]
             if any(w in user_text for w in words):
                 return True
+    if any(kw in user_text for kw in ALLERGEN_KEYWORDS) and any(m.name in user_text for m in menus):
+        return True
     return False
 
 
 async def _chat_faq(req: AgentRequest, db: Session) -> AgentResponse:
     faqs    = db.query(FAQ).filter(FAQ.is_active == True).all()
+    menus   = db.query(Menu).filter(Menu.is_active == True).all()
     context = build_faq_context(db)
 
     try:
@@ -238,7 +250,7 @@ async def _chat_faq(req: AgentRequest, db: Session) -> AgentResponse:
         })
 
     response_text = result.get("response", "잘 듣지 못했어요. 다시 한 번 말씀해 주시겠어요?")
-    if not _has_faq_match(req.text, faqs):
+    if not _has_faq_match(req.text, faqs, menus):
         response_text = "해당 정보는 카운터에 문의해 주세요."
 
     return AgentResponse(**{"class": "FAQ", "response": response_text})

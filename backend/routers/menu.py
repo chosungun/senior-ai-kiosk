@@ -15,11 +15,14 @@ class MenuCreate(BaseModel):
     price:       int
     image_url:   Optional[str] = None
     description: Optional[str] = None
+    allergens:   Optional[str] = ""
     options:     Optional[list] = []
 
 class MenuUpdate(BaseModel):
     name:        Optional[str] = None
     price:       Optional[int] = None
+    description: Optional[str] = None
+    allergens:   Optional[str] = None
     is_sold_out: Optional[bool] = None
     is_active:   Optional[bool] = None
     options:     Optional[list] = None
@@ -31,6 +34,7 @@ class MenuOut(BaseModel):
     price:       int
     image_url:   Optional[str]
     description: Optional[str]
+    allergens:   Optional[str]
     is_sold_out: bool
     is_active:   bool
     options:     list
