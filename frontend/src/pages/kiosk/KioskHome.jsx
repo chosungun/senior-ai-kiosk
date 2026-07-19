@@ -11,7 +11,7 @@ import AIAssistantFAB from '../../components/AIAssistantFAB'
 import ScreenHeader from '../../components/ScreenHeader'
 import { ttsText, getMenus } from '../../api'
 
-const GREETING_TEXT = '안녕하세요, 카페 아날로그입니다.'
+const GREETING_TEXT = '무엇을 도와드릴까요?'
 const GREETING_INTERVAL_MS = 5 * 60 * 1000 // 홈 화면에 계속 떠 있는 동안 5분마다 인사말 반복
 
 const SCR_LIGHT = {

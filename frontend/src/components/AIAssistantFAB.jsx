@@ -327,6 +327,12 @@ const AIAssistantFAB = forwardRef(function AIAssistantFAB({
 
   useImperativeHandle(ref, () => ({ open: (m = 'faq') => { setMode(m); setOpen(true) } }), [])
 
+  // 오버레이가 열려 있는 동안(음성 상담/주문 중)에는 홈 화면의 무응답 감지를 다시 켜서
+  // "괜찮으세요?" 되묻기가 동작하도록 함 — 닫히면 홈 화면 대기 상태로 되돌림
+  useEffect(() => {
+    idle?.setEnabled(open)
+  }, [open])
+
   // 오버레이 열릴 때 초기화 + 인사
   useEffect(() => {
     if (open) {
