@@ -101,8 +101,10 @@ class=ORDER
 - 컨텍스트에 없는 메뉴명은 response에 안내하고 data.items에서 제외.
 """
 
-GROQ_MODEL_FAQ   = os.getenv("GROQ_MODEL_FAQ",   os.getenv("GROQ_MODEL", "openai/gpt-oss-20b"))
-GROQ_MODEL_ORDER = os.getenv("GROQ_MODEL_ORDER", os.getenv("GROQ_MODEL", "openai/gpt-oss-20b"))
+# .env.example을 그대로 복사하면 GROQ_MODEL_FAQ= 처럼 빈 문자열이 주입되므로,
+# getenv 기본값이 아니라 or 체인으로 빈 값까지 걸러내야 모델명이 ""로 넘어가지 않음
+GROQ_MODEL_FAQ   = os.getenv("GROQ_MODEL_FAQ")   or os.getenv("GROQ_MODEL") or "openai/gpt-oss-20b"
+GROQ_MODEL_ORDER = os.getenv("GROQ_MODEL_ORDER") or os.getenv("GROQ_MODEL") or "openai/gpt-oss-20b"
 
 
 def build_faq_context(db: Session) -> str:

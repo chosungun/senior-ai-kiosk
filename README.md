@@ -26,10 +26,11 @@ _유튜브 링크 추가 예정_
 
 ## 핵심 기능
 
-- 🗣️ **대화형 주문** — 음성/터치로 자연스럽게 주문. 모호한 표현("달달한 거 줘")도 후보 메뉴 추천으로 처리
-- 🧭 **상황별 UI 자동 전환** — 발화 의도에 따라 추천/옵션확인/장바구니확인/결제 화면으로 자동 라우팅
-- ❓ **FAQ 자동 학습** — AI가 답하지 못한 질문을 자동 수집해 어드민에서 FAQ로 등록 가능
-- 🛠️ **매장 어드민** — 메뉴·품절·매장정보·주문내역을 실시간 관리
+- 🗣️ **대화형 주문** — 음성(STT) 또는 화면 키보드로 주문. 모호한 표현("달달한 거 줘")도 후보 메뉴 추천으로 처리
+- 🧭 **발화에 따른 화면 전환** — 추천 카드 → 옵션 선택 → 장바구니 담기 → 결제까지, 다음에 필요한 UI가 대화 화면 안에서 자동으로 이어짐
+- 🙋 **고령층 접근성** — 큰 글씨·고대비 전환, 화면 낮추기, 음량 조절, 1분간 응답이 없으면 도움이 필요한지 먼저 물어봄
+- 🎤 **메뉴명 인식 보정** — 등록된 메뉴명과 주문 표현을 CLOVA Speech 키워드 부스팅에 넣어 STT 오인식을 줄임
+- 🛠️ **매장 어드민** — 메뉴·품절·FAQ·매장정보·주문내역 관리. 변경 내용은 키오스크 화면과 AI 답변에 그대로 반영
 
 ## AI Agent 동작 구조
 
@@ -40,32 +41,41 @@ flowchart TD
 
     subgraph AGENT["🤖 AI Agent Layer"]
         direction TB
-        API --> CTX["Context Builder<br/>메뉴 · FAQ · 매장 정보"]
+        API --> CTX["Context Builder<br/>FAQ 트랙: FAQ · 매장 · 메뉴<br/>주문 트랙: 메뉴 · 가격 · 옵션"]
         API --> ST["State<br/>장바구니 · 대화 히스토리"]
         CTX --> P["Prompt Assembly<br/>(Prompt Engineering 기반)"]
         ST --> P
         P --> LLM(["LLM 단일 호출<br/>의도 분류 → 액션 결정"])
-        LLM --> OUT["구조화 출력 JSON<br/>action · items · menus · screen"]
+        LLM --> OUT["구조화 출력 JSON<br/>class · response · action · items · menus"]
     end
 
     OUT --> UPD["상태 갱신<br/>cart / history"]
-    OUT --> ROUTE["UI 자동 전환<br/>주문 · 추천 · 장바구니 · 결제"]
+    OUT --> ROUTE["대화 화면 단계 전환<br/>추천 카드 · 옵션 선택 · 담기 · 결제"]
     UPD --> FE
     ROUTE --> FE
     FE --> U
 ```
 
-사용자 발화는 STT로 텍스트 변환된 뒤, 현재 장바구니 상태와 메뉴/FAQ/매장 컨텍스트를 함께 LLM에 전달합니다. LLM은 의도(주문/FAQ/화면전환/불명확)를 분류하고, 상황에 맞는 UI 액션과 답변을 JSON으로 반환합니다.
+사용자는 시작 화면에서 **"음성으로 주문하기"** 또는 **"궁금한 점 물어보기"** 를 고르고, 이 선택이 요청의 `mode`가 되어 두 개의 트랙으로 갈립니다. 음성 입력은 CLOVA STT로 텍스트 변환된 뒤 해당 트랙으로 들어갑니다.
+
+**FAQ 트랙** (`mode: "faq"`)
+등록된 FAQ + 매장정보 + 메뉴 정보(알레르기 유발 성분 포함)를 컨텍스트로 붙여 LLM에 전달하고, `{"response": "..."}` 형태의 답변을 받습니다. 등록된 FAQ 키워드에 걸리지 않는 질문은 LLM이 답을 지어내지 못하도록 "카운터에 문의해 주세요"로 대체합니다.
+
+**주문 트랙** (`mode: "order"`)
+메뉴·가격·옵션·품절 정보와 현재 장바구니, 직전 대화 6턴을 함께 전달합니다. LLM은 발화를 `ORDER`(주문·옵션) / `RECOMMEND`(메뉴 추천)로 분류하고, 실행할 `action`(`ask_options` · `confirm_add` · `show_recommendations`)과 `items` / `menus`를 JSON으로 반환합니다. 프론트엔드는 이를 각각 옵션 선택 버튼, 담기 버튼, 추천 카드로 그립니다.
+
+응답이 JSON이 아니거나 호출이 실패하면(429 포함) 지수 백오프로 최대 5회까지 재시도합니다.
 
 ## 기술 스택
 
 | 영역 | 사용 기술 |
 |------|-----------|
-| Frontend | React, Vite, React Router |
-| Backend | FastAPI, SQLAlchemy |
-| Database | PostgreSQL |
-| LLM | Groq (`openai/gpt-oss-20b`) |
-| STT/TTS | Naver Clova |
+| Frontend | React 18, Vite 5, React Router 6, Axios |
+| Backend | FastAPI, SQLAlchemy 2.0, 어드민 JWT 인증(python-jose + bcrypt) |
+| Database | PostgreSQL 16 |
+| LLM | Groq (기본 `openai/gpt-oss-20b`, 환경변수로 교체 가능) |
+| STT | Naver CLOVA Speech (메뉴명 키워드 부스팅) — 미설정 시 CLOVA CSR로 폴백 |
+| TTS | Naver CLOVA Voice Premium |
 | 배포 | Docker Compose |
 
 ## 실행 방법
@@ -79,26 +89,45 @@ cp .env.example .env
 docker compose up --build
 
 # 키오스크: http://localhost:3000/kiosk
-# 어드민:   http://localhost:3000/admin
+# 어드민:   http://localhost:3000/admin   (기본 계정 admin / admin1234)
 # API 문서: http://localhost:8000/docs
 ```
 
+> 어드민은 로그인 후 접근할 수 있습니다. 계정은 `.env`의 `ADMIN_USERNAME` / `ADMIN_PASSWORD`로 바꿀 수 있습니다.
+
 ### 환경변수
 
-| 변수 | 설명 | 발급처 |
-|------|------|--------|
-| `GROQ_API_KEY` | LLM 호출용 API 키 | [console.groq.com](https://console.groq.com) |
-| `CLOVA_CLIENT_ID` | 네이버 Clova STT/TTS 앱 ID | [클라우드 콘솔](https://console.ncloud.com) |
-| `CLOVA_CLIENT_SECRET` | 네이버 Clova STT/TTS 앱 시크릿 | 동일 |
-| `DATABASE_URL` | PostgreSQL 접속 URL | 기본값: Docker Compose 내 DB |
+| 변수 | 필수 | 설명 | 기본값 / 발급처 |
+|------|:---:|------|--------|
+| `GROQ_API_KEY` | ✅ | LLM 호출용 API 키 | [console.groq.com](https://console.groq.com) |
+| `CLOVA_CLIENT_ID` | ✅ | 네이버 CLOVA STT/TTS 앱 ID | [클라우드 콘솔](https://console.ncloud.com) |
+| `CLOVA_CLIENT_SECRET` | ✅ | 네이버 CLOVA STT/TTS 앱 시크릿 | 동일 |
+| `CLOVA_SPEECH_SECRET` | | CLOVA Speech 앱 시크릿 (STT 키워드 부스팅용, 위와 별개 앱). 없으면 부스팅 없는 CSR로 폴백 | 동일 |
+| `GROQ_MODEL_FAQ` | | FAQ 트랙 모델 | `GROQ_MODEL` → `openai/gpt-oss-20b` |
+| `GROQ_MODEL_ORDER` | | 주문 트랙 모델 | `GROQ_MODEL` → `openai/gpt-oss-20b` |
+| `ADMIN_USERNAME` | | 어드민 아이디 | `admin` |
+| `ADMIN_PASSWORD` | | 어드민 비밀번호 | `admin1234` |
+| `JWT_SECRET` | | 어드민 토큰 서명 키 (운영 시 반드시 변경) | `change-this-secret` |
+| `JWT_EXPIRE_MINUTES` | | 어드민 토큰 만료 시간(분) | `480` |
+| `DATABASE_URL` | | PostgreSQL 접속 URL | Docker Compose가 자동 주입 |
 
 ## 프로젝트 구조
 
 ```
-/kiosk            키오스크 화면 (고객용)
+backend/    FastAPI 서버 — routers/ (menu · faq · store · order · agent · voice · auth)
+frontend/   React 앱 — 키오스크 화면 + 어드민 화면
+```
+
+**화면(라우트)**
+
+```
+/kiosk            시작 화면 — 음성 주문 · 화면 주문 · 문의하기 선택
+/kiosk/order      메뉴 선택 · 장바구니
+/kiosk/payment    결제
+/admin/login      어드민 로그인
 /admin
   /menus          메뉴 추가·수정·품절 관리
-  /faq            FAQ 등록 + AI가 못 답한 질문 목록
+  /faq            FAQ 등록·삭제
   /store          영업시간·주차·와이파이 등 매장 정보
   /orders         주문 내역 조회
 ```
@@ -120,7 +149,7 @@ docker compose up --build
 | 고령층 디지털 기술 이용률 통계 | 2025년 디지털정보격차 실태조사 |
 | 키오스크 이용 중단 사유 통계 | 2022년 한국소비자원 키오스크 이용 실태조사 |
 | LLM API | Groq (`openai/gpt-oss-20b`) |
-| STT/TTS API | 네이버 Clova (NCP) |
+| STT/TTS API | 네이버 CLOVA Speech · CLOVA Voice (NCP) |
 | 메뉴 이미지 | <!-- 자체 제작 여부 또는 출처 명시 --> |
 
 > 본 프로젝트는 2026 AI・SW중심대학 디지털 경진대회 SW 부문 예선 산출물이며, 사용된 모든 외부 자원의 라이선스 및 사용 조건을 준수합니다.
