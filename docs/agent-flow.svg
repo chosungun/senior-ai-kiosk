@@ -1,0 +1,59 @@
+<svg viewBox="0 0 960 220" width="960" height="220" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#94A3B8"/>
+    </marker>
+  </defs>
+
+  <!-- 사용자 -->
+  <rect x="8" y="78" width="112" height="64" rx="16" fill="#EEF2FF" stroke="#6366F1" stroke-width="1.5"/>
+  <text x="64" y="105" text-anchor="middle" font-size="14" font-weight="700" fill="#1F2937">🗣️ 사용자</text>
+  <text x="64" y="124" text-anchor="middle" font-size="11" fill="#4B5563">주문 · 질문</text>
+  <path d="M122 110 H142" stroke="#94A3B8" stroke-width="2" marker-end="url(#a)"/>
+
+  <!-- AI Agent -->
+  <rect x="148" y="46" width="248" height="128" rx="18" fill="#FAF5FF" stroke="#8B5CF6" stroke-width="1.5"/>
+  <text x="272" y="70" text-anchor="middle" font-size="13" font-weight="700" fill="#6D28D9">🤖 AI Agent</text>
+  <rect x="160" y="84" width="68" height="34" rx="10" fill="#EDE9FE" stroke="#A78BFA"/>
+  <text x="194" y="106" text-anchor="middle" font-size="12" fill="#1F2937">① 이해</text>
+  <path d="M230 101 H236" stroke="#A78BFA" stroke-width="2" marker-end="url(#a)"/>
+  <rect x="238" y="84" width="68" height="34" rx="10" fill="#EDE9FE" stroke="#A78BFA"/>
+  <text x="272" y="106" text-anchor="middle" font-size="12" fill="#1F2937">② 판단</text>
+  <path d="M308 101 H314" stroke="#A78BFA" stroke-width="2" marker-end="url(#a)"/>
+  <rect x="316" y="84" width="68" height="34" rx="10" fill="#EDE9FE" stroke="#A78BFA"/>
+  <text x="350" y="106" text-anchor="middle" font-size="12" fill="#1F2937">③ 액션</text>
+  <text x="272" y="142" text-anchor="middle" font-size="10" fill="#6B7280">대화 + 메뉴 + 장바구니 상태를 함께 고려</text>
+  <path d="M398 110 H418" stroke="#94A3B8" stroke-width="2" marker-end="url(#a)"/>
+
+  <!-- 구조화 출력 (강조) -->
+  <rect x="422" y="66" width="152" height="88" rx="16" fill="#FEF3C7" stroke="#F59E0B" stroke-width="3"/>
+  <text x="498" y="94" text-anchor="middle" font-size="13" font-weight="700" fill="#78350F">📦 구조화 출력</text>
+  <text x="498" y="114" text-anchor="middle" font-size="11" font-family="ui-monospace, monospace" fill="#92400E">class · action</text>
+  <text x="498" y="133" text-anchor="middle" font-size="10" fill="#B45309">▼ 값에 따라 분기</text>
+
+  <!-- 분기 -->
+  <path d="M576 110 C616 110 612 48 648 48" fill="none" stroke="#16A34A" stroke-width="2" marker-end="url(#a)"/>
+  <path d="M576 110 H648" fill="none" stroke="#DB2777" stroke-width="2" marker-end="url(#a)"/>
+  <path d="M576 110 C616 110 612 172 648 172" fill="none" stroke="#2563EB" stroke-width="2" marker-end="url(#a)"/>
+
+  <rect x="650" y="24" width="152" height="48" rx="12" fill="#DCFCE7" stroke="#16A34A" stroke-width="1.5"/>
+  <text x="726" y="44" text-anchor="middle" font-size="10" font-family="ui-monospace, monospace" fill="#15803D">class: ORDER</text>
+  <text x="726" y="61" text-anchor="middle" font-size="12" font-weight="600" fill="#14532D">🛒 장바구니 담기</text>
+
+  <rect x="650" y="86" width="152" height="48" rx="12" fill="#FCE7F3" stroke="#DB2777" stroke-width="1.5"/>
+  <text x="726" y="106" text-anchor="middle" font-size="10" font-family="ui-monospace, monospace" fill="#BE185D">class: RECOMMEND</text>
+  <text x="726" y="123" text-anchor="middle" font-size="12" font-weight="600" fill="#831843">✨ 메뉴 추천</text>
+
+  <rect x="650" y="148" width="152" height="48" rx="12" fill="#DBEAFE" stroke="#2563EB" stroke-width="1.5"/>
+  <text x="726" y="168" text-anchor="middle" font-size="10" font-family="ui-monospace, monospace" fill="#1D4ED8">class: FAQ</text>
+  <text x="726" y="185" text-anchor="middle" font-size="12" font-weight="600" fill="#1E3A8A">💬 안내 답변</text>
+
+  <!-- 화면 전환 -->
+  <path d="M804 48 C830 48 828 92 846 100" fill="none" stroke="#94A3B8" stroke-width="2" marker-end="url(#a)"/>
+  <path d="M804 110 H846" fill="none" stroke="#94A3B8" stroke-width="2" marker-end="url(#a)"/>
+  <path d="M804 172 C830 172 828 128 846 120" fill="none" stroke="#94A3B8" stroke-width="2" marker-end="url(#a)"/>
+  <rect x="850" y="72" width="102" height="76" rx="16" fill="#F1F5F9" stroke="#64748B" stroke-width="1.5"/>
+  <text x="901" y="100" text-anchor="middle" font-size="13" font-weight="700" fill="#1F2937">📱 화면</text>
+  <text x="901" y="119" text-anchor="middle" font-size="12" fill="#334155">자동 전환</text>
+  <text x="901" y="137" text-anchor="middle" font-size="9" fill="#64748B">action 값 기준</text>
+</svg>

@@ -33,27 +33,7 @@ _팀 슬로건 추가 예정_
 
 ## AI Agent 동작 구조
 
-```mermaid
-flowchart TD
-    U["👤 사용자 발화"] --> FE["Frontend (React)<br/>mode: ORDER · FAQ 사전 지정"]
-    FE -->|"POST /api/agent/chat"| API["backend/routers/agent.py"]
-
-    subgraph AGENT["🤖 AI Agent Layer"]
-        direction TB
-        API --> CTX["Context Builder<br/>FAQ 트랙: FAQ · 매장 · 메뉴<br/>주문 트랙: 메뉴 · 가격 · 옵션"]
-        API --> ST["State<br/>장바구니 · 대화 히스토리"]
-        CTX --> P["Prompt Assembly<br/>(Prompt Engineering 기반)"]
-        ST --> P
-        P --> LLM(["LLM 단일 호출<br/>의도 분류 → 액션 결정"])
-        LLM --> OUT["구조화 출력 JSON<br/>class · response · action · items · menus"]
-    end
-
-    OUT --> UPD["상태 갱신<br/>cart / history"]
-    OUT --> ROUTE["대화 화면 단계 전환<br/>추천 카드 · 옵션 선택 · 담기 · 결제"]
-    UPD --> FE
-    ROUTE --> FE
-    FE --> U
-```
+![AI Agent 동작 구조](./docs/agent-flow.svg)
 
 사용자는 시작 화면에서 **"음성으로 주문하기"** 또는 **"궁금한 점 물어보기"** 를 고르고, 이 선택이 요청의 `mode`가 되어 두 개의 트랙으로 갈립니다. 음성 입력은 CLOVA STT로 텍스트 변환된 뒤 해당 트랙으로 들어갑니다.
 
