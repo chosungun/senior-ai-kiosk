@@ -19,6 +19,8 @@ _팀 슬로건 추가 예정_
 
 ## 데모
 
+🖥️ **[데모 사이트 바로 체험하기](https://senior-analog.com/kiosk)** — 설치 없이 브라우저에서 실제 키오스크를 사용해 볼 수 있습니다.
+
 [![골라봄 데모 영상](https://img.youtube.com/vi/K-bnPAGlwKk/hqdefault.jpg)](https://youtu.be/K-bnPAGlwKk)
 
 ▶️ **[데모 영상 보기 (YouTube)](https://youtu.be/K-bnPAGlwKk)**
@@ -58,6 +60,8 @@ _팀 슬로건 추가 예정_
 | 배포 | Docker Compose |
 
 ## 실행 방법
+
+> 설치 없이 바로 보시려면 [데모 사이트](https://senior-analog.com/kiosk)를 이용해 주세요. 아래는 로컬에서 직접 띄우는 방법입니다.
 
 ```bash
 # 1. 환경변수 파일 생성
