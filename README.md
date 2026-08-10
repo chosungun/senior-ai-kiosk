@@ -19,10 +19,9 @@ _팀 슬로건 추가 예정_
 
 ## 데모
 
-<!-- 실행 화면 GIF 또는 스크린샷을 여기에 추가하세요. 심사위원이 가장 먼저 보는 부분입니다. -->
-<!-- 예: ![데모](./docs/demo.gif) -->
+[![골라봄 데모 영상](https://img.youtube.com/vi/K-bnPAGlwKk/hqdefault.jpg)](https://youtu.be/K-bnPAGlwKk)
 
-_유튜브 링크 추가 예정_
+▶️ **[데모 영상 보기 (YouTube)](https://youtu.be/K-bnPAGlwKk)**
 
 ## 핵심 기능
 
