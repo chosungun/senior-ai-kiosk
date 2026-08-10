@@ -33,7 +33,27 @@ _유튜브 링크 추가 예정_
 
 ## AI Agent 동작 구조
 
-_도식 추가 예정_
+```mermaid
+flowchart TD
+    U["👤 사용자 발화"] --> FE["Frontend (React)<br/>mode: ORDER · FAQ 사전 지정"]
+    FE -->|"POST /api/agent/chat"| API["backend/routers/agent.py"]
+
+    subgraph AGENT["🤖 AI Agent Layer"]
+        direction TB
+        API --> CTX["Context Builder<br/>메뉴 · FAQ · 매장 정보"]
+        API --> ST["State<br/>장바구니 · 대화 히스토리"]
+        CTX --> P["Prompt Assembly<br/>(Prompt Engineering 기반)"]
+        ST --> P
+        P --> LLM(["LLM 단일 호출<br/>의도 분류 → 액션 결정"])
+        LLM --> OUT["구조화 출력 JSON<br/>action · items · menus · screen"]
+    end
+
+    OUT --> UPD["상태 갱신<br/>cart / history"]
+    OUT --> ROUTE["UI 자동 전환<br/>주문 · 추천 · 장바구니 · 결제"]
+    UPD --> FE
+    ROUTE --> FE
+    FE --> U
+```
 
 사용자 발화는 STT로 텍스트 변환된 뒤, 현재 장바구니 상태와 메뉴/FAQ/매장 컨텍스트를 함께 LLM에 전달합니다. LLM은 의도(주문/FAQ/화면전환/불명확)를 분류하고, 상황에 맞는 UI 액션과 답변을 JSON으로 반환합니다.
 
